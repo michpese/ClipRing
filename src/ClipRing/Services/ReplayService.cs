@@ -44,6 +44,12 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private DateTime _gameGoneSinceUtc = DateTime.MinValue;
     private bool _disposed;
 
+    // Watchdog: ffmpeg running but no data. After repeated failures with audio, record without it.
+    private static readonly TimeSpan NoDataTimeout = TimeSpan.FromSeconds(20);
+    private ReplayRecorder? _watchdogFiredFor;
+    private int _noDataWithAudio;
+    private bool _audioFallback;
+
     public ReplayService(AppSettings settings, Dispatcher ui)
     {
         Settings = settings;
@@ -301,6 +307,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         finally { _life.Release(); }
 
         PipelineSelector.InvalidateCache(Settings);
+        ResetAudioFallback();
         if (await DetectEnvironmentAsync())
         {
             ApplyHighlights();
@@ -367,7 +374,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
             }
             ScheduleSettingsSave();
 
-            bool withAudio = Settings.CaptureSystemAudio || Settings.CaptureMicrophone;
+            bool withAudio = (Settings.CaptureSystemAudio || Settings.CaptureMicrophone) && !_audioFallback;
+            if (_audioFallback) Log.Warn("Starte ohne Tonspur (Ausweichbetrieb nach Startproblemen mit Ton)");
             double? audioStart = null;
             if (withAudio) audioStart = _audio.BeginStream() + Settings.AudioOffsetMs / 1000.0;
 
@@ -412,8 +420,39 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private void OnRecorderRunning(ReplayRecorder recorder)
     {
         if (!ReferenceEquals(recorder, _recorder)) return;
+        if (_pipelineHasAudio) _noDataWithAudio = 0;
         State = ReplayState.Running;
-        StatusText = $"Hotkey {Settings.HotkeySave} speichert die letzten {FormatDuration(Settings.BufferSeconds)}.";
+        StatusText = _audioFallback
+            ? "Läuft ohne Ton: Mit Tonspur hat FFmpeg keine Daten geliefert. Details stehen im Protokoll."
+            : $"Hotkey {Settings.HotkeySave} speichert die letzten {FormatDuration(Settings.BufferSeconds)}.";
+        Log.Info($"Replay läuft ({(_pipelineHasAudio ? "mit" : "ohne")} Ton)");
+    }
+
+    /// <summary>Called every 2 s: detects an ffmpeg that runs but never delivers data.</summary>
+    private void CheckRecorderWatchdog()
+    {
+        var recorder = _recorder;
+        if (recorder is null || recorder.HasProducedData || ReferenceEquals(recorder, _watchdogFiredFor)) return;
+        if (DateTime.UtcNow - recorder.StartedUtc < NoDataTimeout) return;
+
+        _watchdogFiredFor = recorder;
+        Log.Warn($"Keine Daten von FFmpeg nach {NoDataTimeout.TotalSeconds:0} s. {recorder.DiagnosticSummary()}");
+        if (_pipelineHasAudio && ++_noDataWithAudio >= 2 && !_audioFallback)
+        {
+            _audioFallback = true;
+            Log.Warn("Zweimal keine Daten mit Tonspur: nächster Versuch ohne Ton, um die Ursache einzugrenzen");
+            Notify?.Invoke("Aufnahme vorerst ohne Ton",
+                           "Mit Tonspur hat FFmpeg keine Daten geliefert. Details stehen im Protokoll.");
+        }
+        OnRecorderFaulted(recorder, $"FFmpeg hat nach {NoDataTimeout.TotalSeconds:0} s noch keine Daten geliefert");
+    }
+
+    private void ResetAudioFallback()
+    {
+        _noDataWithAudio = 0;
+        if (!_audioFallback) return;
+        _audioFallback = false;
+        Log.Info("Tonspur wird wieder versucht");
     }
 
     private void OnRecorderFaulted(ReplayRecorder recorder, string message)
@@ -426,6 +465,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
         bool early = !recorder.HasProducedData || ranFor < TimeSpan.FromSeconds(10);
         if (early && _pipeline?.FromCache == true) PipelineSelector.InvalidateCache(Settings);
+        if (!recorder.HasProducedData && !ReferenceEquals(recorder, _watchdogFiredFor))
+            Log.Warn("Diagnose: " + recorder.DiagnosticSummary());
 
         var delay = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, Math.Min(_failures, 5))));
         Log.Warn($"Aufnahme abgebrochen ({message}), neuer Versuch in {delay.TotalSeconds:0}s");
@@ -474,6 +515,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         var recorder = _recorder;
         if (ffmpeg is null || recorder is null || !recorder.HasProducedData)
         {
+            Log.Warn($"Clip nicht gespeichert ({reason}{(tag is null ? "" : ", " + tag)}): Replay läuft nicht (Zustand: {StateTitle})");
             Notify?.Invoke("Kein Clip gespeichert", "Das Replay läuft gerade nicht.");
             if (Settings.PlaySoundOnSave) Sounds.PlayFailed();
             return null;
@@ -576,9 +618,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
             case nameof(AppSettings.MicrophoneDeviceId):
                 _ = Task.Run(ApplyAudioConfig);
                 NotifyEstimates();
+                bool wasFallback = _audioFallback;
+                ResetAudioFallback();
                 // Only the presence of an audio track needs a new ffmpeg process.
                 bool wantsAudio = Settings.CaptureSystemAudio || Settings.CaptureMicrophone;
-                if (_recorder is not null && wantsAudio != _pipelineHasAudio)
+                if (_recorder is not null && (wantsAudio != _pipelineHasAudio || wasFallback))
                     ScheduleRestart(name, RestartDebounce, reprobe: false);
                 break;
             case nameof(AppSettings.OnlyWhenGameRunning):
@@ -734,6 +778,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
             ValorantScore = _valorant?.LastScore ?? 0;
 
             if (++_statsTick % 8 != 0) return; // the rest every 2 s
+
+            CheckRecorderWatchdog();
 
             if (_cs2 is not null)
             {

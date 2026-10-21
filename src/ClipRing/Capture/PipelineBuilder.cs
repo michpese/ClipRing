@@ -287,8 +287,9 @@ public static class PipelineBuilder
     public static List<string> BuildRecordArgs(PipelineSpec p, MonitorInfo mon, AppSettings s, double? audioStartUnix)
     {
         bool audio = audioStartUnix.HasValue;
-        var a = new List<string> { "-hide_banner", "-nostats", "-loglevel", "warning" };
-        if (!audio) a.Add("-nostdin"); // with audio, stdin carries the PCM stream
+        // -nostdin only disables keyboard commands; the PCM stream on pipe:0 still works.
+        // Info level + periodic stats show in the log how far ffmpeg got (inputs opened, output started, frames encoded).
+        var a = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "info", "-stats", "-stats_period", "5" };
         a.AddRange(p.GlobalArgs);
         a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", Ddagrab(mon.Index, s.Fps, s.CaptureCursor) });
 

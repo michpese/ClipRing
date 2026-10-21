@@ -36,6 +36,12 @@ public sealed class AudioEngine : IDisposable
     private bool _awaitingAttach;
     private double _streamStartUnix = double.NaN;
 
+    // Diagnostics for the ffmpeg stdin pipe (read without locks from other threads).
+    private long _pipeBytes;
+    private long _lastPipeWriteTicks;
+    private long _pipeWriteSinceTicks;
+    private string? _pipeError;
+
     private Thread? _thread;
     private volatile bool _running;
     private Timer? _deviceWatch;
@@ -187,7 +193,25 @@ public sealed class AudioEngine : IDisposable
         {
             _output = output;
             _awaitingAttach = false;
+            Interlocked.Exchange(ref _pipeBytes, 0);
+            Interlocked.Exchange(ref _lastPipeWriteTicks, 0);
+            _pipeError = null;
         }
+    }
+
+    /// <summary>Human-readable state of the PCM pipe to ffmpeg, for the log.</summary>
+    public string PipeDiagnostics()
+    {
+        long bytes = Interlocked.Read(ref _pipeBytes);
+        long last = Interlocked.Read(ref _lastPipeWriteTicks);
+        long since = Interlocked.Read(ref _pipeWriteSinceTicks);
+        long now = DateTime.UtcNow.Ticks;
+        var text = $"Ton an FFmpeg: {bytes / 1024} KB ({bytes / (double)(SampleRate * Channels * sizeof(float)):F1} s)";
+        text += last == 0 ? ", noch nie geschrieben" : $", zuletzt vor {TimeSpan.FromTicks(now - last).TotalSeconds:F1} s";
+        if (since != 0) text += $", Schreibvorgang blockiert seit {TimeSpan.FromTicks(now - since).TotalSeconds:F1} s";
+        if (_pipeError is not null) text += $", Fehler: {_pipeError}";
+        string sources = string.Join(", ", new[] { SystemDeviceName, MicDeviceName }.Where(n => n is not null));
+        return text + $"; Quellen: {(sources.Length == 0 ? "keine" : sources)}";
     }
 
     public void DetachOutput()
@@ -291,19 +315,31 @@ public sealed class AudioEngine : IDisposable
             if (output is null) return;
             try
             {
+                Interlocked.Exchange(ref _pipeWriteSinceTicks, DateTime.UtcNow.Ticks);
+                long written = 0;
                 if (_backlog.Length > 0)
                 {
                     output.Write(_backlog.GetBuffer(), 0, (int)_backlog.Length);
+                    written += _backlog.Length;
                     _backlog.SetLength(0);
                 }
                 output.Write(bytes);
                 output.Flush();
+                written += bytes.Length;
+                Interlocked.Add(ref _pipeBytes, written);
+                Interlocked.Exchange(ref _lastPipeWriteTicks, DateTime.UtcNow.Ticks);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException)
             {
                 // ffmpeg went away; the recorder reports that separately.
+                _pipeError = ex.Message;
+                Log.Info("Ton-Pipe zu FFmpeg beendet: " + ex.Message);
                 _output = null;
                 _backlog.SetLength(0);
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _pipeWriteSinceTicks, 0);
             }
         }
     }

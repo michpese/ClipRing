@@ -137,6 +137,9 @@
 
                                 <TextBlock Style="{StaticResource Text.Muted}" Margin="0,18,0,0" FontSize="13"
                                            Text="{Binding Service.StatusText}" />
+                                <TextBlock Style="{StaticResource Text.Muted}" Margin="0,8,0,0" FontSize="13"
+                                           Foreground="{StaticResource Brush.Warn}" Text="{Binding HotkeyErrors}"
+                                           Visibility="{Binding HotkeyErrors, Converter={StaticResource EmptyToVisible}, ConverterParameter=invert}" />
 
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button Content="{Binding PauseButtonText}" Command="{Binding TogglePauseCommand}" Margin="0,0,10,0" />

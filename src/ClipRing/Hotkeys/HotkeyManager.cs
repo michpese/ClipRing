@@ -20,7 +20,7 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
     public override string ToString()
     {
         var parts = new List<string>();
-        if (Modifiers.HasFlag(HotkeyModifiers.Control)) parts.Add("Ctrl");
+        if (Modifiers.HasFlag(HotkeyModifiers.Control)) parts.Add("Strg");
         if (Modifiers.HasFlag(HotkeyModifiers.Alt)) parts.Add("Alt");
         if (Modifiers.HasFlag(HotkeyModifiers.Shift)) parts.Add("Shift");
         if (Modifiers.HasFlag(HotkeyModifiers.Win)) parts.Add("Win");
@@ -119,7 +119,7 @@ public sealed class HotkeyManager : IDisposable
         var entry = new Entry(_nextId++, binding.Value, callback);
         _entries[name] = entry;
         if (_suspended) return null;
-        return RegisterNative(entry) ? null : $"{binding} ist bereits von einem anderen Programm belegt.";
+        return RegisterNative(entry) ? null : $"{binding} ist von einem anderen Programm belegt.";
     }
 
     public void Unregister(string name)

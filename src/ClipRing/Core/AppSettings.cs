@@ -96,16 +96,16 @@ public sealed class AppSettings : ObservableObject
     public bool PlaySoundOnSave { get => _playSoundOnSave; set => Set(ref _playSoundOnSave, value); }
 
     // ---------------------------------------------------------------- Hotkeys
-    private string _hotkeySave = "Alt+F10";
+    private string _hotkeySave = "Strg+Alt+F10";
     public string HotkeySave { get => _hotkeySave; set => Set(ref _hotkeySave, value ?? ""); }
 
-    private string _hotkeySaveShort = "Alt+F9";
+    private string _hotkeySaveShort = "Strg+Alt+F9";
     public string HotkeySaveShort { get => _hotkeySaveShort; set => Set(ref _hotkeySaveShort, value ?? ""); }
 
     private int _shortClipSeconds = 30;
     public int ShortClipSeconds { get => _shortClipSeconds; set => Set(ref _shortClipSeconds, Math.Clamp(value, 5, 600)); }
 
-    private string _hotkeyToggle = "Alt+Shift+F10";
+    private string _hotkeyToggle = "Strg+Alt+F11";
     public string HotkeyToggle { get => _hotkeyToggle; set => Set(ref _hotkeyToggle, value ?? ""); }
 
     // ---------------------------------------------------------------- Highlights
@@ -139,7 +139,7 @@ public sealed class AppSettings : ObservableObject
     private int _valorantMinKills = 1;
     public int ValorantMinKills { get => _valorantMinKills; set => Set(ref _valorantMinKills, Math.Clamp(value, 1, 5)); }
 
-    private string _hotkeyValorantCalibrate = "Ctrl+Alt+K";
+    private string _hotkeyValorantCalibrate = "Strg+Alt+K";
     public string HotkeyValorantCalibrate { get => _hotkeyValorantCalibrate; set => Set(ref _hotkeyValorantCalibrate, value ?? ""); }
 
     // Region of the kill banner, relative to the monitor (0..1).
@@ -203,6 +203,17 @@ public sealed class AppSettings : ObservableObject
         nameof(Quality), nameof(CustomBitrateKbps), nameof(RateControl), nameof(Speed),
         nameof(KeyframeIntervalSec), nameof(CaptureCursor), nameof(AudioBitrateKbps),
         nameof(AudioOffsetMs), nameof(FfmpegPath),
+    };
+
+    /// <summary>
+    /// Defaults of v0.1 that collide with NVIDIA's overlay (Alt+F9/Alt+F10/Alt+Shift+F10).
+    /// Key: setting name, value: (old default, new default).
+    /// </summary>
+    public static readonly Dictionary<string, (string Old, string New)> LegacyHotkeyDefaults = new()
+    {
+        [nameof(HotkeySave)] = ("Alt+F10", "Strg+Alt+F10"),
+        [nameof(HotkeySaveShort)] = ("Alt+F9", "Strg+Alt+F9"),
+        [nameof(HotkeyToggle)] = ("Alt+Shift+F10", "Strg+Alt+F11"),
     };
 
     public static readonly HashSet<string> HotkeyProperties = new()

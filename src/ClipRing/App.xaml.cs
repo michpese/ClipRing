@@ -20,6 +20,7 @@ public partial class App : Application
     private HotkeyManager? _hotkeys;
     private TrayIcon? _tray;
     private MainWindow? _window;
+    private bool _registeringHotkeys;
 
     public static bool IsExiting { get; private set; }
 
@@ -62,7 +63,6 @@ public partial class App : Application
         var viewModel = _viewModel = new MainViewModel(service);
 
         _hotkeys = new HotkeyManager();
-        RegisterHotkeys();
         settings.PropertyChanged += (_, args) =>
         {
             var name = args.PropertyName ?? "";
@@ -79,6 +79,7 @@ public partial class App : Application
             openFolder: () => viewModel.OpenOutputFolderCommand.Execute(null),
             exit: ExitApp,
             isPaused: () => service.IsPaused);
+        RegisterHotkeys(); // after the tray icon exists, so a hotkey migration can be announced
         service.Notify += (title, text) => Dispatcher.BeginInvoke(new Action(() => _tray?.ShowBalloon(title, text)));
         service.PropertyChanged += (_, args) =>
         {
@@ -111,26 +112,57 @@ public partial class App : Application
 
     private void RegisterHotkeys()
     {
-        if (_hotkeys is null || _settings is null || _service is null || _viewModel is null) return;
+        if (_registeringHotkeys || _hotkeys is null || _settings is null || _service is null || _viewModel is null) return;
+        var hotkeys = _hotkeys;
         var service = _service;
         var settings = _settings;
         var errors = new List<string>();
-
-        void Register(string name, string text, Action action)
+        var migrated = new List<string>();
+        _registeringHotkeys = true; // changing a setting below would re-enter via PropertyChanged
+        try
         {
-            var error = _hotkeys!.Register(name, text, action);
-            if (error is not null) errors.Add(error);
+            void Register(string name, string settingName, Func<string> get, Action<string> set, Action action)
+            {
+                var error = hotkeys.Register(name, get(), action);
+                // The v0.1 defaults collide with NVIDIA's overlay: move them to the new defaults once.
+                if (error is not null && AppSettings.LegacyHotkeyDefaults.TryGetValue(settingName, out var legacy) &&
+                    get() == legacy.Old)
+                {
+                    set(legacy.New);
+                    migrated.Add($"{legacy.Old} → {legacy.New}");
+                    error = hotkeys.Register(name, get(), action);
+                }
+                if (error is not null) errors.Add(error);
+            }
+
+            Register("save", nameof(AppSettings.HotkeySave), () => settings.HotkeySave, v => settings.HotkeySave = v,
+                     () => _ = service.SaveClipAsync(settings.BufferSeconds));
+            Register("short", nameof(AppSettings.HotkeySaveShort), () => settings.HotkeySaveShort, v => settings.HotkeySaveShort = v,
+                     () => _ = service.SaveClipAsync(settings.ShortClipSeconds));
+            Register("toggle", nameof(AppSettings.HotkeyToggle), () => settings.HotkeyToggle, v => settings.HotkeyToggle = v,
+                     service.TogglePause);
+            if (settings.ValorantEnabled)
+                Register("valorant", nameof(AppSettings.HotkeyValorantCalibrate), () => settings.HotkeyValorantCalibrate,
+                         v => settings.HotkeyValorantCalibrate = v, service.CaptureValorantTemplate);
+            else
+                hotkeys.Unregister("valorant");
+        }
+        finally
+        {
+            _registeringHotkeys = false;
         }
 
-        Register("save", settings.HotkeySave, () => _ = service.SaveClipAsync(settings.BufferSeconds));
-        Register("short", settings.HotkeySaveShort, () => _ = service.SaveClipAsync(settings.ShortClipSeconds));
-        Register("toggle", settings.HotkeyToggle, service.TogglePause);
-        if (settings.ValorantEnabled)
-            Register("valorant", settings.HotkeyValorantCalibrate, service.CaptureValorantTemplate);
-        else
-            _hotkeys.Unregister("valorant");
+        _viewModel.HotkeyErrors = errors.Count == 0
+            ? ""
+            : string.Join(Environment.NewLine, errors) + Environment.NewLine +
+              "Bitte unter „Hotkeys“ eine andere Kombination wählen. Alt+F9 und Alt+F10 belegt zum Beispiel die NVIDIA App.";
 
-        _viewModel.HotkeyErrors = string.Join(Environment.NewLine, errors);
+        if (migrated.Count > 0)
+        {
+            Log.Info("Hotkeys umgestellt, weil die alten belegt sind: " + string.Join(", ", migrated));
+            _tray?.ShowBalloon("Hotkeys geändert",
+                "Die bisherigen Tasten sind von einem anderen Programm belegt (z. B. NVIDIA App). Neu: " + string.Join(", ", migrated));
+        }
     }
 
     public void ShowMainWindow()

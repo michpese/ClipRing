@@ -24,6 +24,13 @@ public sealed class ReplayRecorder : IDisposable
     private volatile bool _stopping;
     private int _faultRaised;
 
+    // Diagnostics: what came out of ffmpeg so far.
+    private long _stdoutBytes;
+    private readonly List<string> _boxTrail = new();
+    private int _droppedFragments;
+    private string _lastStats = "";
+    private int _statsLines;
+
     public ReplayRecorder(ReplayBuffer buffer) => _buffer = buffer;
 
     /// <summary>Raised once when the first fragment arrived (capture + encoder are working).</summary>
@@ -85,16 +92,50 @@ public sealed class ReplayRecorder : IDisposable
             string? line;
             while ((line = reader.ReadLine()) is not null)
             {
-                if (string.IsNullOrWhiteSpace(line)) continue;
+                line = line.Trim();
+                if (line.Length == 0) continue;
+
+                // Progress lines ("frame=  600 fps=120 ... size= ... time=...") come every few seconds.
+                // Log them while waiting for the first data and then only every 5 minutes.
+                if (line.StartsWith("frame=", StringComparison.Ordinal) || line.StartsWith("size=", StringComparison.Ordinal))
+                {
+                    _lastStats = line;
+                    if (!HasProducedData || ++_statsLines % 60 == 0) Log.Info("ffmpeg-Status: " + line);
+                    continue;
+                }
+
                 lock (_stderrTail)
                 {
-                    _stderrTail.Enqueue(line.Trim());
+                    _stderrTail.Enqueue(line);
                     while (_stderrTail.Count > 20) _stderrTail.Dequeue();
                 }
-                Log.Warn("ffmpeg: " + line.Trim());
+                Log.Info("ffmpeg: " + line);
             }
         }
         catch { /* process gone */ }
+    }
+
+    /// <summary>One line describing how far the pipeline got, for "no data" diagnostics.</summary>
+    public string DiagnosticSummary()
+    {
+        string boxes;
+        lock (_boxTrail) boxes = _boxTrail.Count == 0 ? "keine" : string.Join(" ", _boxTrail);
+        bool exited = false;
+        try { exited = _process?.HasExited ?? true; } catch { }
+        var text = $"FFmpeg {(exited ? "beendet" : "läuft")}; Ausgabe: {Interlocked.Read(ref _stdoutBytes)} Bytes, MP4-Boxen: {boxes}";
+        if (_droppedFragments > 0) text += $", {_droppedFragments} Fragmente nicht lesbar";
+        text += $"; letzter Status: {(_lastStats.Length == 0 ? "keiner" : _lastStats)}";
+        if (_audio is not null) text += "; " + _audio.PipeDiagnostics();
+        return text;
+    }
+
+    private void NoteBox(string type, long size)
+    {
+        Interlocked.Add(ref _stdoutBytes, size);
+        lock (_boxTrail)
+        {
+            if (_boxTrail.Count < 8) _boxTrail.Add($"{type}({size})");
+        }
     }
 
     private string ErrorTail()
@@ -156,6 +197,7 @@ public sealed class ReplayRecorder : IDisposable
                 }
                 if (size < headerLength) throw new InvalidDataException($"Ungültige MP4-Box '{type}' ({size} Bytes)");
                 long payload = size - headerLength;
+                NoteBox(type, size);
 
                 switch (type)
                 {
@@ -206,6 +248,8 @@ public sealed class ReplayRecorder : IDisposable
 
                         if (timing is null)
                         {
+                            if (++_droppedFragments <= 3)
+                                Log.Warn($"MP4-Fragment ohne lesbare Videozeit verworfen ({data.Length} Bytes)");
                             data.Dispose();
                             break;
                         }

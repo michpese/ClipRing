@@ -70,7 +70,7 @@ dotnet run --project src\ClipRing
 ## Erste Schritte
 
 1. ClipRing starten. Beim ersten Start prüft es FFmpeg, die Monitore und testet die Encoder (dauert ein paar Sekunden, Status unter „Übersicht“).
-2. Spielen. Mit **Alt+F10** werden die letzten 2 Minuten gespeichert, mit **Alt+F9** die letzten 30 Sekunden. **Alt+Umschalt+F10** pausiert.
+2. Spielen. Mit **Strg+Alt+F10** werden die letzten 2 Minuten gespeichert, mit **Strg+Alt+F9** die letzten 30 Sekunden. **Strg+Alt+F11** pausiert. (Die Tasten lassen sich unter „Hotkeys“ ändern. Alt+F9/F10 sind bewusst nicht belegt, weil die NVIDIA App sie nutzt.)
 3. Clips landen in `Videos\ClipRing\<Spiel>\`.
 
 ## So funktioniert es
