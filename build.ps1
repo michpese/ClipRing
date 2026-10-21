@@ -45,6 +45,10 @@ $publishArgs = @(
     '-p:DebugType=embedded',
     '-o', $Output
 )
+if ($env:GITHUB_ACTIONS -eq 'true') {
+    # Classic one-line diagnostics with full paths, so the workflow can turn them into annotations.
+    $publishArgs += @('-tl:off', '-p:GenerateFullPaths=true', '-clp:NoSummary')
+}
 & dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen (Code $LASTEXITCODE)" }
 

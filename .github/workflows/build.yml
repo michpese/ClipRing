@@ -27,7 +27,12 @@ jobs:
 
       - name: Kompilieren
         shell: pwsh
-        run: ./build.ps1 -SkipFfmpeg
+        run: ./build.ps1 -SkipFfmpeg *>&1 | Tee-Object -FilePath build.log
+
+      - name: Compiler-Meldungen als Annotationen
+        if: always()
+        shell: pwsh
+        run: ./.github/scripts/report-diagnostics.ps1 -LogFile build.log
 
       - name: Ergebnis hochladen
         uses: actions/upload-artifact@v6
