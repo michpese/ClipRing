@@ -17,3 +17,9 @@ public enum ReplayState { Initializing, Starting, Running, Paused, WaitingForGam
 
 /// <summary>Which Counter-Strike 2 modes create automatic highlight clips.</summary>
 public enum Cs2ModeFilter { Competitive, CompetitiveAndWingman, All }
+
+/// <summary>How the screen is captured. Auto prefers Windows Graphics Capture (event driven, reaches high frame rates).</summary>
+public enum CaptureMethod { Auto, WindowsGraphicsCapture, DesktopDuplication }
+
+/// <summary>The capture filter a pipeline actually uses.</summary>
+public enum VideoSource { Wgc, Dda }

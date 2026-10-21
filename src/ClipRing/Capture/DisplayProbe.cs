@@ -1,18 +1,22 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using ClipRing.Core;
+using ClipRing.Native;
 
 namespace ClipRing.Capture;
 
-public sealed record MonitorInfo(int Index, int Width, int Height)
+/// <param name="Index">Position in EnumDisplayMonitors order; this is gfxcapture's monitor_idx.</param>
+/// <param name="DeviceName">Windows device name such as \\.\DISPLAY1, stable across restarts.</param>
+/// <param name="DdaIndex">Matching ddagrab output_idx (Desktop Duplication order), or -1 if none.</param>
+public sealed record MonitorInfo(int Index, int Width, int Height, string DeviceName, bool IsPrimary, int DdaIndex)
 {
-    public string Label => $"Monitor {Index + 1} ({Width} × {Height})";
+    public string Label => $"Monitor {Index + 1}: {Width} × {Height}{(IsPrimary ? ", Hauptbildschirm" : "")}";
 }
 
 /// <summary>
-/// Enumerates the outputs ddagrab can capture by grabbing one frame per output index.
-/// Using ffmpeg itself guarantees the index and native size match exactly what the
-/// recorder will see (DXGI order can differ from the Windows display numbering).
+/// Lists the monitors. Windows' own enumeration is the reference (gfxcapture uses the same order);
+/// for the Desktop Duplication path each monitor is matched to a ddagrab output by probing ffmpeg,
+/// because DXGI orders outputs differently.
 /// </summary>
 public static partial class DisplayProbe
 {
@@ -21,7 +25,52 @@ public static partial class DisplayProbe
 
     public static async Task<List<MonitorInfo>> ProbeAsync(FfmpegInfo ffmpeg, CancellationToken ct = default)
     {
+        var windows = Win32.EnumerateMonitors();
+        var dda = ffmpeg.HasFilter("ddagrab")
+            ? await ProbeDdaOutputsAsync(ffmpeg, ct).ConfigureAwait(false)
+            : new List<(int Index, int Width, int Height)>();
+
         var result = new List<MonitorInfo>();
+        if (windows.Count == 0)
+        {
+            // Should not happen; fall back to what ddagrab sees.
+            foreach (var d in dda)
+                result.Add(new MonitorInfo(d.Index, d.Width, d.Height, $"DDA{d.Index}", d.Index == 0, d.Index));
+            Log.Warn("Windows meldet keine Monitore, verwende die Desktop-Duplication-Liste");
+            return result;
+        }
+
+        // Match each Windows monitor to a ddagrab output of the same size (first free one),
+        // then hand out the remaining outputs in order.
+        var used = new HashSet<int>();
+        var ddaIndex = new int[windows.Count];
+        for (int i = 0; i < windows.Count; i++)
+        {
+            var match = dda.FirstOrDefault(d => !used.Contains(d.Index) && d.Width == windows[i].Width && d.Height == windows[i].Height);
+            ddaIndex[i] = dda.Count > 0 && (match.Width != 0) ? match.Index : -1;
+            if (ddaIndex[i] >= 0) used.Add(ddaIndex[i]);
+        }
+        var spare = new Queue<int>(dda.Select(d => d.Index).Where(i => !used.Contains(i)));
+        for (int i = 0; i < windows.Count; i++)
+        {
+            if (ddaIndex[i] < 0 && spare.Count > 0) ddaIndex[i] = spare.Dequeue();
+        }
+
+        for (int i = 0; i < windows.Count; i++)
+        {
+            var w = windows[i];
+            result.Add(new MonitorInfo(i, w.Width, w.Height, w.Device, w.Primary, ddaIndex[i]));
+        }
+
+        Log.Info("Monitore: " + string.Join("; ", result.Select(m =>
+            $"{m.Label} [{m.DeviceName}, DDA {(m.DdaIndex < 0 ? "-" : m.DdaIndex.ToString(CultureInfo.InvariantCulture))}]")));
+        return result;
+    }
+
+    /// <summary>Grabs one frame per ddagrab output index to learn their sizes.</summary>
+    private static async Task<List<(int Index, int Width, int Height)>> ProbeDdaOutputsAsync(FfmpegInfo ffmpeg, CancellationToken ct)
+    {
+        var result = new List<(int Index, int Width, int Height)>();
         for (int index = 0; index < 8; index++)
         {
             var args = new[]
@@ -40,9 +89,8 @@ public static partial class DisplayProbe
             }
             int w = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
             int h = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
-            result.Add(new MonitorInfo(index, w, h));
+            result.Add((index, w, h));
         }
-        Log.Info("Monitore: " + string.Join(", ", result.Select(m => m.Label)));
         return result;
     }
 }

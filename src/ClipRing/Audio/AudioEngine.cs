@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using ClipRing.Core;
 using ClipRing.Native;
@@ -32,15 +33,13 @@ public sealed class AudioEngine : IDisposable
     private volatile float _micGain = 1f;
     private volatile float _systemPeak, _micPeak;
 
-    private Stream? _output;
+    private PipeWriter? _writer;
     private bool _awaitingAttach;
     private double _streamStartUnix = double.NaN;
+    private bool _overflowReported;
 
-    // Diagnostics for the ffmpeg stdin pipe (read without locks from other threads).
-    private long _pipeBytes;
-    private long _lastPipeWriteTicks;
-    private long _pipeWriteSinceTicks;
-    private string? _pipeError;
+    /// <summary>More audio than this waiting for ffmpeg means it stopped reading for good.</summary>
+    private const long MaxQueuedBytes = SampleRate * Channels * sizeof(float) * 120L;
 
     private Thread? _thread;
     private volatile bool _running;
@@ -176,7 +175,8 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_outGate)
         {
-            _output = null;
+            _writer?.Dispose();
+            _writer = null;
             _backlog.SetLength(0);
             _streamStartUnix = double.NaN;
             _awaitingAttach = true;
@@ -191,34 +191,33 @@ public sealed class AudioEngine : IDisposable
     {
         lock (_outGate)
         {
-            _output = output;
+            _writer?.Dispose();
+            _writer = new PipeWriter(output);
+            _overflowReported = false;
+            if (_backlog.Length > 0)
+            {
+                _writer.Enqueue(_backlog.GetBuffer().AsSpan(0, (int)_backlog.Length));
+                _backlog.SetLength(0);
+            }
             _awaitingAttach = false;
-            Interlocked.Exchange(ref _pipeBytes, 0);
-            Interlocked.Exchange(ref _lastPipeWriteTicks, 0);
-            _pipeError = null;
         }
     }
 
     /// <summary>Human-readable state of the PCM pipe to ffmpeg, for the log.</summary>
     public string PipeDiagnostics()
     {
-        long bytes = Interlocked.Read(ref _pipeBytes);
-        long last = Interlocked.Read(ref _lastPipeWriteTicks);
-        long since = Interlocked.Read(ref _pipeWriteSinceTicks);
-        long now = DateTime.UtcNow.Ticks;
-        var text = $"Ton an FFmpeg: {bytes / 1024} KB ({bytes / (double)(SampleRate * Channels * sizeof(float)):F1} s)";
-        text += last == 0 ? ", noch nie geschrieben" : $", zuletzt vor {TimeSpan.FromTicks(now - last).TotalSeconds:F1} s";
-        if (since != 0) text += $", Schreibvorgang blockiert seit {TimeSpan.FromTicks(now - since).TotalSeconds:F1} s";
-        if (_pipeError is not null) text += $", Fehler: {_pipeError}";
         string sources = string.Join(", ", new[] { SystemDeviceName, MicDeviceName }.Where(n => n is not null));
-        return text + $"; Quellen: {(sources.Length == 0 ? "keine" : sources)}";
+        var writer = _writer;
+        string pipe = writer is null ? "Ton an FFmpeg: keine Verbindung" : writer.Describe();
+        return pipe + $"; Quellen: {(sources.Length == 0 ? "keine" : sources)}";
     }
 
     public void DetachOutput()
     {
         lock (_outGate)
         {
-            _output = null;
+            _writer?.Dispose();
+            _writer = null;
             _awaitingAttach = false;
             _backlog.SetLength(0);
         }
@@ -311,36 +310,96 @@ public sealed class AudioEngine : IDisposable
                 return;
             }
 
-            var output = _output;
-            if (output is null) return;
+            var writer = _writer;
+            if (writer is null || writer.Failed) return;
+            writer.Enqueue(bytes);
+            if (writer.QueuedBytes > MaxQueuedBytes && !_overflowReported)
+            {
+                // ffmpeg has not read audio for two minutes: something is stuck, start over.
+                _overflowReported = true;
+                Log.Warn("FFmpeg nimmt seit 2 Minuten keinen Ton mehr an, Aufnahme wird neu gestartet");
+                SyncLost?.Invoke();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes PCM to ffmpeg's stdin on its own thread. ffmpeg stops reading audio whenever the video runs
+    /// behind (e.g. Graphics Capture on a static screen delivers no frames); the mixer must keep its
+    /// wall-clock pace regardless, so chunks queue up here and are delivered once ffmpeg reads again.
+    /// </summary>
+    private sealed class PipeWriter : IDisposable
+    {
+        private readonly Stream _stream;
+        private readonly BlockingCollection<byte[]> _queue = new();
+        private long _queued, _written, _lastWriteTicks, _writeSinceTicks;
+        private volatile string? _error;
+
+        public PipeWriter(Stream stream)
+        {
+            _stream = stream;
+            new Thread(Run) { IsBackground = true, Name = "audio-pipe", Priority = ThreadPriority.AboveNormal }.Start();
+        }
+
+        public bool Failed => _error is not null;
+        public long QueuedBytes => Interlocked.Read(ref _queued);
+
+        public void Enqueue(ReadOnlySpan<byte> data)
+        {
+            var chunk = data.ToArray();
+            Interlocked.Add(ref _queued, chunk.Length);
+            try { _queue.Add(chunk); }
+            catch (InvalidOperationException) { Interlocked.Add(ref _queued, -chunk.Length); } // disposed
+        }
+
+        private void Run()
+        {
             try
             {
-                Interlocked.Exchange(ref _pipeWriteSinceTicks, DateTime.UtcNow.Ticks);
-                long written = 0;
-                if (_backlog.Length > 0)
+                foreach (var chunk in _queue.GetConsumingEnumerable())
                 {
-                    output.Write(_backlog.GetBuffer(), 0, (int)_backlog.Length);
-                    written += _backlog.Length;
-                    _backlog.SetLength(0);
+                    Interlocked.Exchange(ref _writeSinceTicks, DateTime.UtcNow.Ticks);
+                    try
+                    {
+                        _stream.Write(chunk, 0, chunk.Length);
+                        _stream.Flush();
+                        Interlocked.Add(ref _written, chunk.Length);
+                        Interlocked.Exchange(ref _lastWriteTicks, DateTime.UtcNow.Ticks);
+                    }
+                    finally
+                    {
+                        Interlocked.Add(ref _queued, -chunk.Length);
+                        Interlocked.Exchange(ref _writeSinceTicks, 0);
+                    }
                 }
-                output.Write(bytes);
-                output.Flush();
-                written += bytes.Length;
-                Interlocked.Add(ref _pipeBytes, written);
-                Interlocked.Exchange(ref _lastPipeWriteTicks, DateTime.UtcNow.Ticks);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException)
             {
                 // ffmpeg went away; the recorder reports that separately.
-                _pipeError = ex.Message;
+                _error = ex.Message;
                 Log.Info("Ton-Pipe zu FFmpeg beendet: " + ex.Message);
-                _output = null;
-                _backlog.SetLength(0);
             }
-            finally
-            {
-                Interlocked.Exchange(ref _pipeWriteSinceTicks, 0);
-            }
+        }
+
+        public string Describe()
+        {
+            const double bytesPerSecond = SampleRate * Channels * sizeof(float);
+            long written = Interlocked.Read(ref _written);
+            long last = Interlocked.Read(ref _lastWriteTicks);
+            long since = Interlocked.Read(ref _writeSinceTicks);
+            long now = DateTime.UtcNow.Ticks;
+            var text = $"Ton an FFmpeg: {written / 1024} KB ({written / bytesPerSecond:F1} s)";
+            text += last == 0 ? ", noch nie geschrieben" : $", zuletzt vor {TimeSpan.FromTicks(now - last).TotalSeconds:F1} s";
+            if (since != 0) text += $", Schreibvorgang wartet seit {TimeSpan.FromTicks(now - since).TotalSeconds:F1} s";
+            text += $", wartend {QueuedBytes / bytesPerSecond:F1} s";
+            if (_error is not null) text += $", Fehler: {_error}";
+            return text;
+        }
+
+        public void Dispose()
+        {
+            // Ends the writer after the current chunk; a write blocked on a dead pipe fails by itself.
+            try { _queue.CompleteAdding(); } catch (ObjectDisposedException) { }
         }
     }
 

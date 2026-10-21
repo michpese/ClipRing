@@ -7,6 +7,7 @@ namespace ClipRing.Capture;
 public sealed record PipelineSpec
 {
     public required string Id { get; init; }
+    public required VideoSource Source { get; init; }
     public required EncoderBackend Backend { get; init; }
     public required VideoCodec Codec { get; init; }
     public required string EncoderName { get; init; }
@@ -21,6 +22,7 @@ public sealed record PipelineSpec
     public bool FromCache { get; init; }
 
     public string EncoderLabel => $"{PipelineBuilder.BackendName(Backend)} ({PipelineBuilder.CodecName(Codec)})";
+    public string SourceLabel => Source == VideoSource.Wgc ? "Windows Graphics Capture" : "Desktop Duplication";
 }
 
 public static class PipelineBuilder
@@ -117,11 +119,42 @@ public static class PipelineBuilder
         => $"ddagrab=output_idx={outputIndex}:framerate={fps}:draw_mouse={(cursor ? 1 : 0)}";
 
     /// <summary>
+    /// Windows Graphics Capture: delivers a frame whenever the compositor has a new one (up to max_framerate).
+    /// ddagrab paces itself with Sleep(), which Windows rounds to 15.6 ms for processes that don't raise the
+    /// timer resolution (ffmpeg doesn't), so it tops out around 80 fps.
+    /// </summary>
+    public static string Gfxcapture(int monitorIndex, int fps, bool cursor)
+        => $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={fps}:capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+
+    public static string SourceGraph(PipelineSpec p, MonitorInfo mon, int fps, bool cursor)
+        => p.Source == VideoSource.Wgc ? Gfxcapture(mon.Index, fps, cursor) : Ddagrab(mon.DdaIndex, fps, cursor);
+
+    /// <summary>Capture sources to try, preferred first.</summary>
+    public static IReadOnlyList<VideoSource> Sources(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
+    {
+        bool wgc = ff.HasFilter("gfxcapture");
+        bool dda = ff.HasFilter("ddagrab") && mon.DdaIndex >= 0;
+        var list = new List<VideoSource>();
+        if (s.CaptureMethod == CaptureMethod.DesktopDuplication)
+        {
+            if (dda) list.Add(VideoSource.Dda);
+            if (wgc) list.Add(VideoSource.Wgc);
+        }
+        else
+        {
+            if (wgc) list.Add(VideoSource.Wgc);
+            if (dda) list.Add(VideoSource.Dda);
+        }
+        return list;
+    }
+
+    /// <summary>
     /// Candidate pipelines for one backend, best first. GPU paths keep frames in VRAM
     /// (zero-copy); the CPU path downloads frames and converts with swscale, which works
     /// everywhere (e.g. hybrid laptops where the display GPU is not the encoder GPU).
     /// </summary>
-    public static IEnumerable<PipelineSpec> Candidates(FfmpegInfo ff, AppSettings s, MonitorInfo mon, EncoderBackend backend)
+    public static IEnumerable<PipelineSpec> Candidates(FfmpegInfo ff, AppSettings s, MonitorInfo mon, EncoderBackend backend,
+                                                     VideoSource source)
     {
         string encoder = EncoderName(backend, s.Codec);
         if (!ff.HasEncoder(encoder)) yield break;
@@ -135,10 +168,12 @@ public static class PipelineBuilder
             $"hwdownload,format=bgra,scale={ow}:{oh}:flags=bicubic:out_color_matrix=bt709:out_range=tv,format={pixFmt}";
         string[] bt709 = { "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv" };
 
+        string prefix = source == VideoSource.Wgc ? "wgc/" : "dda/";
         PipelineSpec Make(string id, string? filter, string pathLabel, IReadOnlyList<string>? color = null,
                           IReadOnlyList<string>? global = null) => new()
         {
-            Id = id,
+            Id = prefix + id,
+            Source = source,
             Backend = backend,
             Codec = s.Codec,
             EncoderName = encoder,
@@ -298,7 +333,7 @@ public static class PipelineBuilder
         a.AddRange(p.GlobalArgs);
         if (audio)
             a.AddRange(new[] { "-itsoffset", (-audioStartUnix!.Value).ToString("F6", CultureInfo.InvariantCulture) });
-        a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", Ddagrab(mon.Index, s.Fps, s.CaptureCursor) });
+        a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, s.CaptureCursor) });
 
         if (audio)
         {
@@ -335,7 +370,9 @@ public static class PipelineBuilder
     {
         var a = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "error" };
         a.AddRange(p.GlobalArgs);
-        a.AddRange(new[] { "-f", "lavfi", "-i", Ddagrab(mon.Index, s.Fps, false), "-frames:v", "15" });
+        // Graphics Capture only delivers frames when the screen changes; one frame is enough to validate the path.
+        string frames = p.Source == VideoSource.Wgc ? "1" : "15";
+        a.AddRange(new[] { "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, false), "-frames:v", frames });
         if (!string.IsNullOrEmpty(p.VideoFilter)) a.AddRange(new[] { "-vf", p.VideoFilter });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);

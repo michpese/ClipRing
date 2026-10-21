@@ -12,7 +12,8 @@ public static class PipelineSelector
     public static string CacheKey(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
     {
         var (ow, oh) = PipelineBuilder.OutputSize(s.Resolution, mon.Width, mon.Height);
-        return $"{ff.Path}|{ff.Version}|{mon.Index}|{mon.Width}x{mon.Height}|{ow}x{oh}|{s.Fps}|{s.Codec}|{s.Encoder}";
+        return $"{ff.Path}|{ff.Version}|{mon.DeviceName}|{mon.Index}|{mon.DdaIndex}|{mon.Width}x{mon.Height}|{ow}x{oh}|" +
+               $"{s.Fps}|{s.Codec}|{s.Encoder}|{s.CaptureMethod}";
     }
 
     public static async Task<PipelineSpec?> SelectAsync(FfmpegInfo ff, AppSettings s, MonitorInfo mon,
@@ -23,29 +24,39 @@ public static class PipelineSelector
             ? PipelineBuilder.AutoOrder
             : new[] { s.Encoder }.Concat(PipelineBuilder.AutoOrder.Where(b => b != s.Encoder)).ToArray();
 
+        var sources = PipelineBuilder.Sources(ff, s, mon);
+        if (sources.Count == 0)
+        {
+            Log.Warn("Dieses FFmpeg kann den Bildschirm weder mit gfxcapture noch mit ddagrab aufnehmen");
+            return null;
+        }
+
         // 1) Cached winner from a previous run with identical hardware/settings.
         if (s.PipelineCacheKey == key && !string.IsNullOrEmpty(s.PipelineCacheId))
         {
+            foreach (var source in sources)
             foreach (var backend in order)
             {
-                var cached = PipelineBuilder.Candidates(ff, s, mon, backend)
+                var cached = PipelineBuilder.Candidates(ff, s, mon, backend, source)
                                             .FirstOrDefault(c => c.Id == s.PipelineCacheId);
                 if (cached is not null) return cached with { FromCache = true };
             }
         }
 
-        // 2) Probe candidates in order.
+        // 2) Probe candidates: hardware encoder first, then the preferred capture source
+        //    (a GPU encoder with the second-best capture beats a CPU encoder with the best one).
         foreach (var backend in order)
+        foreach (var source in sources)
         {
-            foreach (var candidate in PipelineBuilder.Candidates(ff, s, mon, backend))
+            foreach (var candidate in PipelineBuilder.Candidates(ff, s, mon, backend, source))
             {
                 ct.ThrowIfCancellationRequested();
-                progress?.Invoke($"Teste {candidate.EncoderLabel}, {candidate.PathLabel} …");
+                progress?.Invoke($"Teste {candidate.EncoderLabel}, {candidate.PathLabel}, {candidate.SourceLabel} …");
                 var args = PipelineBuilder.BuildTestArgs(candidate, mon, s);
                 var result = await ProcessRunner.RunAsync(ff.Path, args, TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
                 if (result.Success)
                 {
-                    Log.Info($"Pipeline gewählt: {candidate.Id} ({candidate.EncoderLabel}, {candidate.PathLabel})");
+                    Log.Info($"Pipeline gewählt: {candidate.Id} ({candidate.EncoderLabel}, {candidate.PathLabel}, {candidate.SourceLabel})");
                     if (s.Encoder != EncoderBackend.Auto && backend != s.Encoder)
                         Log.Warn($"{PipelineBuilder.BackendName(s.Encoder)} ist nicht nutzbar, weiche auf {PipelineBuilder.BackendName(backend)} aus");
                     s.PipelineCacheKey = key;

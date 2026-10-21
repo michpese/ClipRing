@@ -37,7 +37,7 @@ public sealed class ValorantKillDetector : IDisposable
 
     public ValorantKillDetector(MonitorInfo monitor, AppSettings s)
     {
-        _outputIndex = monitor.Index;
+        _outputIndex = monitor.DdaIndex; // the banner capture uses ddagrab (10 fps is fine with its timer)
         _threshold = s.ValorantThreshold;
         _captureX = (int)(monitor.Width * s.ValorantRegionX) & ~1;
         _captureY = (int)(monitor.Height * s.ValorantRegionY) & ~1;

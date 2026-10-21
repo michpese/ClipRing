@@ -44,8 +44,11 @@ public sealed class ReplayRecorder : IDisposable
     public DateTime StartedUtc { get; private set; }
     public bool HasProducedData { get; private set; }
 
-    /// <summary>Average encoded frames per second reported by ffmpeg (null until the first status line).</summary>
-    public double? EncoderFps { get; private set; }
+    /// <summary>Frames per second over the last ffmpeg status period (null until two status lines arrived).</summary>
+    public double? RecentFps { get; private set; }
+
+    private long _lastStatsFrames = -1;
+    private double _lastStatsElapsed;
 
     public void Start(string ffmpegPath, IReadOnlyList<string> args, AudioEngine? audio)
     {
@@ -106,9 +109,7 @@ public sealed class ReplayRecorder : IDisposable
                 {
                     _lastStats = line;
                     _statsLines++;
-                    var fps = Regex.Match(line, @"\bfps=\s*([0-9]+(?:\.[0-9]+)?)");
-                    if (fps.Success && double.TryParse(fps.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
-                        EncoderFps = value;
+                    UpdateRecentFps(line);
                     if (!HasProducedData || _statsLines <= 6 || _statsLines % 60 == 0) Log.Info("ffmpeg-Status: " + line);
                     continue;
                 }
@@ -122,6 +123,27 @@ public sealed class ReplayRecorder : IDisposable
             }
         }
         catch { /* process gone */ }
+    }
+
+    /// <summary>
+    /// ffmpeg's own fps= is an average since start. For a current value use the frame counter and the
+    /// elapsed time of consecutive lines: "frame= 2402 ... elapsed=0:00:30.08".
+    /// </summary>
+    private void UpdateRecentFps(string line)
+    {
+        var frame = Regex.Match(line, @"\bframe=\s*(\d+)");
+        var elapsed = Regex.Match(line, @"\belapsed=(\d+):(\d+):(\d+(?:\.\d+)?)");
+        if (!frame.Success || !elapsed.Success) return;
+
+        long frames = long.Parse(frame.Groups[1].Value, CultureInfo.InvariantCulture);
+        double seconds = int.Parse(elapsed.Groups[1].Value, CultureInfo.InvariantCulture) * 3600
+                         + int.Parse(elapsed.Groups[2].Value, CultureInfo.InvariantCulture) * 60
+                         + double.Parse(elapsed.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+        if (_lastStatsFrames >= 0 && seconds > _lastStatsElapsed + 0.5)
+            RecentFps = (frames - _lastStatsFrames) / (seconds - _lastStatsElapsed);
+        _lastStatsFrames = frames;
+        _lastStatsElapsed = seconds;
     }
 
     /// <summary>One line describing how far the pipeline got, for "no data" diagnostics.</summary>

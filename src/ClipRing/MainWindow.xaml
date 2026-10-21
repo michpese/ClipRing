@@ -248,6 +248,11 @@
                                     <ComboBox Width="280" ItemsSource="{Binding FpsOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Fps}" />
                                 </ui:SettingRow>
+                                <ui:SettingRow Title="Aufnahmemethode"
+                                               Description="Windows Graphics Capture schafft hohe Bildraten und liefert nur dann Bilder, wenn sich etwas ändert. Desktop Duplication ist die ältere Methode und kommt unter Windows nur auf etwa 80 fps.">
+                                    <ComboBox Width="280" ItemsSource="{Binding CaptureMethodOptions}" DisplayMemberPath="Label"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.CaptureMethod}" />
+                                </ui:SettingRow>
                                 <ui:SettingRow Title="Mauszeiger aufnehmen" ShowDivider="False">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CaptureCursor}" />
                                 </ui:SettingRow>

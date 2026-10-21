@@ -76,6 +76,13 @@ public sealed class MainViewModel : ObservableObject
 
     public IReadOnlyList<Option<int>> FpsOptions { get; }
 
+    public IReadOnlyList<Option<CaptureMethod>> CaptureMethodOptions { get; } = new Option<CaptureMethod>[]
+    {
+        new(CaptureMethod.Auto, "Automatisch (empfohlen)"),
+        new(CaptureMethod.WindowsGraphicsCapture, "Windows Graphics Capture"),
+        new(CaptureMethod.DesktopDuplication, "Desktop Duplication (max. ca. 80 fps)"),
+    };
+
     public IReadOnlyList<Option<VideoCodec>> CodecOptions { get; } = new Option<VideoCodec>[]
     {
         new(VideoCodec.H264, "H.264 (überall abspielbar)"),

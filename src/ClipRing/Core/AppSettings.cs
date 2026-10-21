@@ -9,7 +9,15 @@ public sealed class AppSettings : ObservableObject
 {
     // ---------------------------------------------------------------- Video
     private int _monitorIndex;
+    /// <summary>Position of the monitor in Windows' enumeration (see MonitorInfo.Index).</summary>
     public int MonitorIndex { get => _monitorIndex; set => Set(ref _monitorIndex, Math.Max(0, value)); }
+
+    private string _monitorDevice = "";
+    /// <summary>Device name of the selected monitor (\\.\DISPLAY1); survives reordering. Empty = not chosen yet.</summary>
+    public string MonitorDevice { get => _monitorDevice; set => Set(ref _monitorDevice, value ?? ""); }
+
+    private CaptureMethod _captureMethod = CaptureMethod.Auto;
+    public CaptureMethod CaptureMethod { get => _captureMethod; set => Set(ref _captureMethod, value); }
 
     private ResolutionMode _resolution = ResolutionMode.Native;
     public ResolutionMode Resolution { get => _resolution; set => Set(ref _resolution, value); }
@@ -203,7 +211,7 @@ public sealed class AppSettings : ObservableObject
     /// <summary>Names of properties whose change requires restarting the capture pipeline.</summary>
     public static readonly HashSet<string> PipelineProperties = new()
     {
-        nameof(MonitorIndex), nameof(Resolution), nameof(Fps), nameof(Codec), nameof(Encoder),
+        nameof(CaptureMethod), nameof(Resolution), nameof(Fps), nameof(Codec), nameof(Encoder),
         nameof(Quality), nameof(CustomBitrateKbps), nameof(RateControl), nameof(Speed),
         nameof(KeyframeIntervalSec), nameof(CaptureCursor), nameof(AudioBitrateKbps),
         nameof(AudioOffsetMs), nameof(FfmpegPath),

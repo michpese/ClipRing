@@ -55,6 +55,46 @@ internal static class Win32
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO info);
 
+    public const uint MONITORINFOF_PRIMARY = 0x1;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct MONITORINFOEX
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string szDevice;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
+    public static extern bool GetMonitorInfoEx(IntPtr hMonitor, ref MONITORINFOEX info);
+
+    public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data);
+
+    [DllImport("user32.dll")]
+    public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc callback, IntPtr data);
+
+    /// <summary>Monitors in EnumDisplayMonitors order (the order FFmpeg's gfxcapture uses for monitor_idx).</summary>
+    public static List<(string Device, int Width, int Height, bool Primary)> EnumerateMonitors()
+    {
+        var list = new List<(string, int, int, bool)>();
+        MonitorEnumProc callback = (IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data) =>
+        {
+            var info = new MONITORINFOEX { cbSize = Marshal.SizeOf<MONITORINFOEX>(), szDevice = "" };
+            if (GetMonitorInfoEx(hMonitor, ref info))
+            {
+                list.Add((info.szDevice, info.rcMonitor.Width, info.rcMonitor.Height,
+                          (info.dwFlags & MONITORINFOF_PRIMARY) != 0));
+            }
+            return true;
+        };
+        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, callback, IntPtr.Zero);
+        GC.KeepAlive(callback);
+        return list;
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     public static extern int GetWindowLong(IntPtr hWnd, int index);
 

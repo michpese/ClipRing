@@ -172,7 +172,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     // ---------------------------------------------------------------- estimates for the settings page
     public MonitorInfo? SelectedMonitor =>
-        _monitors.FirstOrDefault(m => m.Index == Settings.MonitorIndex) ?? _monitors.FirstOrDefault();
+        (Settings.MonitorDevice.Length > 0 ? _monitors.FirstOrDefault(m => m.DeviceName == Settings.MonitorDevice) : null)
+        ?? _monitors.FirstOrDefault(m => m.Index == Settings.MonitorIndex)
+        ?? _monitors.FirstOrDefault(m => m.IsPrimary)
+        ?? _monitors.FirstOrDefault();
 
     public (int Width, int Height) EstimatedOutputSize
     {
@@ -292,12 +295,37 @@ public sealed class ReplayService : ObservableObject, IDisposable
         try
         {
             var monitors = await DisplayProbe.ProbeAsync(Ffmpeg);
-            if (monitors.Count > 0) Monitors = monitors;
+            if (monitors.Count == 0) return;
+            Monitors = monitors;
+            SyncMonitorSelection();
         }
         catch (Exception ex)
         {
             Log.Warn("Monitorerkennung fehlgeschlagen: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Keeps MonitorIndex (what the UI shows) and MonitorDevice (what identifies the monitor) consistent.
+    /// Up to v0.1 MonitorIndex was the ddagrab output index; that selection is carried over once.
+    /// </summary>
+    private void SyncMonitorSelection()
+    {
+        MonitorInfo? selected;
+        if (Settings.MonitorDevice.Length == 0)
+        {
+            selected = _monitors.FirstOrDefault(m => m.DdaIndex == Settings.MonitorIndex)
+                       ?? _monitors.FirstOrDefault(m => m.IsPrimary) ?? _monitors.FirstOrDefault();
+            if (selected is not null) Log.Info($"Monitorauswahl übernommen: {selected.Label} ({selected.DeviceName})");
+        }
+        else
+        {
+            selected = SelectedMonitor;
+        }
+        if (selected is null) return;
+        // Device first: the MonitorIndex handler then sees no change of monitor and does not restart.
+        Settings.MonitorDevice = selected.DeviceName;
+        Settings.MonitorIndex = selected.Index;
     }
 
     /// <summary>Re-detects ffmpeg + hardware (after the user changed the ffmpeg path or drivers).</summary>
@@ -402,7 +430,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 return;
             }
 
-            EncoderText = $"{pipeline.EncoderLabel}, {pipeline.PathLabel}";
+            EncoderText = $"{pipeline.EncoderLabel}, {pipeline.PathLabel}, {pipeline.SourceLabel}";
             OutputText = $"{pipeline.OutWidth} × {pipeline.OutHeight}, {Settings.Fps} fps, {pipeline.BitrateKbps / 1000.0:0.#} Mbit/s";
             StatusText = "Aufnahme startet …";
             LastError = null;
@@ -448,20 +476,27 @@ public sealed class ReplayService : ObservableObject, IDisposable
         OnRecorderFaulted(recorder, $"FFmpeg hat nach {NoDataTimeout.TotalSeconds:0} s noch keine Daten geliefert");
     }
 
-    /// <summary>Warns once per recording when the encoder delivers clearly fewer frames than requested.</summary>
+    /// <summary>Warns once per recording when clearly fewer frames than requested are recorded.</summary>
     private void CheckEncoderSpeed()
     {
         var recorder = _recorder;
         if (recorder is null || !recorder.HasProducedData || ReferenceEquals(recorder, _slowEncoderWarnedFor)) return;
         if (DateTime.UtcNow - recorder.StartedUtc < TimeSpan.FromSeconds(25)) return;
-        if (recorder.EncoderFps is not double fps || fps >= Settings.Fps * 0.9) return;
+        if (recorder.RecentFps is not double fps || fps >= Settings.Fps * 0.9) return;
+
+        bool wgc = _pipeline?.Source == VideoSource.Wgc;
+        // Graphics Capture only delivers changed frames: a quiet desktop is not a problem, a game is.
+        if (wgc && _games.Current is null) return;
 
         _slowEncoderWarnedFor = recorder;
-        string message = $"Der Encoder schafft nur {fps:0} von {Settings.Fps} Bildern pro Sekunde, Clips ruckeln dadurch. " +
-                         "Abhilfe: Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung. " +
-                         "Läuft gleichzeitig NVIDIA Instant Replay oder eine andere Aufnahme, teilen sie sich den Encoder.";
-        Log.Warn($"Encoder zu langsam: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {Settings.Speed}, " +
-                 $"{_pipeline?.OutWidth}x{_pipeline?.OutHeight})");
+        string message = wgc
+            ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an. Entweder läuft das Spiel selbst langsamer, " +
+              "oder die Grafikkarte kommt nicht mit: dann Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung wählen. " +
+              "Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder."
+            : $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an, Clips ruckeln dadurch. " +
+              "Unter „Video“ als Aufnahmemethode „Windows Graphics Capture“ wählen, sonst Encoder-Tempo „Schnell“ oder weniger fps.";
+        Log.Warn($"Zu wenige Bilder: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {_pipeline?.SourceLabel}, " +
+                 $"{Settings.Speed}, {_pipeline?.OutWidth}x{_pipeline?.OutHeight})");
         StatusText = message;
         Notify?.Invoke("Aufnahme ruckelt", $"Nur {fps:0} von {Settings.Fps} fps. Details auf der Übersicht.");
     }
@@ -638,6 +673,16 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
         switch (name)
         {
+            case nameof(AppSettings.MonitorIndex):
+            {
+                // The user picked another monitor in the list (or SyncMonitorSelection aligned the index).
+                var picked = _monitors.FirstOrDefault(m => m.Index == Settings.MonitorIndex);
+                if (picked is null || picked.DeviceName == Settings.MonitorDevice) break;
+                Settings.MonitorDevice = picked.DeviceName;
+                NotifyEstimates();
+                ScheduleRestart(name, RestartDebounce, reprobe: false);
+                break;
+            }
             case nameof(AppSettings.BufferSeconds):
                 _buffer.TargetSeconds = Settings.BufferSeconds;
                 NotifyEstimates();
@@ -762,8 +807,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     private void UpdateValorantDetector()
     {
-        bool shouldRun = Settings.ValorantEnabled && Ffmpeg is not null && SelectedMonitor is not null &&
-                         IsProcessRunning(ValorantKillDetector.ProcessName);
+        bool shouldRun = Settings.ValorantEnabled && Ffmpeg is not null && SelectedMonitor is { DdaIndex: >= 0 } &&
+                         Ffmpeg.HasFilter("ddagrab") && IsProcessRunning(ValorantKillDetector.ProcessName);
         if (shouldRun && _valorant is null)
         {
             try

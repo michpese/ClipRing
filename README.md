@@ -76,7 +76,7 @@ dotnet run --project src\ClipRing
 ## So funktioniert es
 
 ```
-ddagrab (Desktop Duplication, GPU)
+gfxcapture / ddagrab (GPU)
    └─ [GPU-Skalierung oder CPU-Konvertierung]
         └─ Encoder (NVENC / AMF / QSV / D3D12 / Software)
 WASAPI PC-Ton ┐
@@ -87,6 +87,7 @@ Hotkey ─▶ Schnappschuss der letzten N s ─▶ ffmpeg -c copy (ohne Neukodie
 
 - **RAM-Puffer:** FFmpeg schreibt ein Fragment pro Keyframe (Standard: jede Sekunde). ClipRing hält davon so viele, wie der Zeitraum verlangt, und gibt ältere Blöcke zur Wiederverwendung frei. Beim Speichern wird nur kopiert, nicht neu kodiert; die Aufnahme läuft dabei weiter.
 - **Synchronität:** Video bekommt beim Erfassen die Systemzeit als Zeitstempel, der Ton ist ein lückenloser Strom, dessen erste Probe ebenfalls an der Systemzeit verankert ist. Im Test mit FFmpeg (Testquelle anstelle von `ddagrab`) lag der Versatz unter einer Millisekunde. Falls es auf deinem System doch abweicht, gibt es unter „Audio“ einen Ton-Versatz.
+- **Bildschirmaufnahme:** Bevorzugt über Windows Graphics Capture (`gfxcapture`, FFmpeg 8.1+). Es liefert ein Bild, sobald Windows ein neues zusammengesetzt hat, und schafft damit hohe Bildraten. Die ältere Desktop Duplication (`ddagrab`) taktet sich mit `Sleep()`, das Windows für FFmpeg auf 15,6 ms rundet; sie kommt deshalb nur auf etwa 80 fps und dient als Ausweichweg.
 - **Encoder-Auswahl:** Für jeden Kandidaten läuft ein kurzer Testlauf. Bevorzugt werden Wege, bei denen das Bild die Grafikkarte nicht verlässt (NVENC/AMF direkt, `scale_d3d11`, `vpp_amf`, `vpp_qsv`). Klappt das nicht (z. B. Laptop mit zwei GPUs), geht es über die CPU-Konvertierung. Das Ergebnis wird zwischengespeichert.
 - **Clip-Schnitt:** Clips beginnen auf einem Keyframe. Gespeichert werden mindestens N Sekunden vor dem Tastendruck bis zum Ende des Puffers, ClipRing wartet dafür kurz, bis der Encoder den Moment des Tastendrucks ausgegeben hat.
 
