@@ -476,29 +476,39 @@ public sealed class ReplayService : ObservableObject, IDisposable
         OnRecorderFaulted(recorder, $"FFmpeg hat nach {NoDataTimeout.TotalSeconds:0} s noch keine Daten geliefert");
     }
 
-    /// <summary>Warns once per recording when clearly fewer frames than requested are recorded.</summary>
+    private DateTime _lowFpsSinceUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// Warns once per recording when clearly fewer frames than requested arrive for half a minute while a game
+    /// is in front (both capture paths only deliver changed frames, so a quiet desktop or a short loading
+    /// screen is not a problem).
+    /// </summary>
     private void CheckEncoderSpeed()
     {
         var recorder = _recorder;
         if (recorder is null || !recorder.HasProducedData || ReferenceEquals(recorder, _slowEncoderWarnedFor)) return;
-        if (DateTime.UtcNow - recorder.StartedUtc < TimeSpan.FromSeconds(25)) return;
-        if (recorder.RecentFps is not double fps || fps >= Settings.Fps * 0.9) return;
-
-        bool wgc = _pipeline?.Source == VideoSource.Wgc;
-        // Graphics Capture only delivers changed frames: a quiet desktop is not a problem, a game is.
-        if (wgc && _games.Current is null) return;
+        if (DateTime.UtcNow - recorder.StartedUtc < TimeSpan.FromSeconds(25))
+        {
+            _lowFpsSinceUtc = DateTime.MinValue;
+            return;
+        }
+        if (recorder.RecentFps is not double fps || fps >= Settings.Fps * 0.9 || _games.Current is null)
+        {
+            _lowFpsSinceUtc = DateTime.MinValue;
+            return;
+        }
+        if (_lowFpsSinceUtc == DateTime.MinValue) _lowFpsSinceUtc = DateTime.UtcNow;
+        if (DateTime.UtcNow - _lowFpsSinceUtc < TimeSpan.FromSeconds(30)) return;
 
         _slowEncoderWarnedFor = recorder;
+        _lowFpsSinceUtc = DateTime.MinValue;
         int hz = SelectedMonitor?.RefreshHz ?? 0;
-        string message = wgc && hz > 0 && hz < Settings.Fps * 0.95
+        string message = hz > 0 && hz < Settings.Fps * 0.95
             ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an: der Monitor läuft mit {hz} Hz, und mehr Bilder " +
-              "liefert Windows Graphics Capture nicht. In den Windows-Anzeigeeinstellungen die Bildwiederholrate erhöhen oder weniger fps wählen."
-            : wgc
-            ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an. Entweder läuft das Spiel selbst langsamer, " +
+              "liefert Windows nicht. In den Windows-Anzeigeeinstellungen die Bildwiederholrate erhöhen oder weniger fps wählen."
+            : $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an. Entweder läuft das Spiel selbst langsamer, " +
               "oder die Grafikkarte kommt nicht mit: dann Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung wählen. " +
-              "Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder."
-            : $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an, Clips ruckeln dadurch. " +
-              "Unter „Video“ als Aufnahmemethode „Windows Graphics Capture“ wählen, sonst Encoder-Tempo „Schnell“ oder weniger fps.";
+              "Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder.";
         Log.Warn($"Zu wenige Bilder: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {_pipeline?.SourceLabel}, " +
                  $"{Settings.Speed}, {_pipeline?.OutWidth}x{_pipeline?.OutHeight}, Monitor {(hz > 0 ? $"{hz} Hz" : "Hz unbekannt")})");
         StatusText = message;

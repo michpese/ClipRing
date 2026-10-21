@@ -115,17 +115,30 @@ public static class PipelineBuilder
 
     public static int GopFrames(AppSettings s) => Math.Max(1, (int)Math.Round(s.Fps * s.KeyframeIntervalSec));
 
-    public static string Ddagrab(int outputIndex, int fps, bool cursor)
-        => $"ddagrab=output_idx={outputIndex}:framerate={fps}:draw_mouse={(cursor ? 1 : 0)}";
+    /// <summary>
+    /// Desktop Duplication. ddagrab sleeps until the next frame is due, and Windows rounds Sleep() up to its
+    /// 15.6 ms timer for processes that don't raise the timer resolution (ffmpeg doesn't). Asked for 120 fps
+    /// it therefore delivered ~80. Asked for a rate well above what the monitor can show
+    /// (<see cref="DdaCaptureRate"/>), it never gets ahead of schedule and never sleeps; with dup_frames=0 it
+    /// then just waits in AcquireNextFrame for the next desktop update, like Graphics Capture does.
+    /// </summary>
+    public static string Ddagrab(int outputIndex, int rate, bool cursor, bool dupFrames)
+        => $"ddagrab=output_idx={outputIndex}:framerate={rate}:draw_mouse={(cursor ? 1 : 0)}:dup_frames={(dupFrames ? 1 : 0)}";
+
+    /// <summary>
+    /// ddagrab advances its schedule by at most two frame intervals per delivered frame, so the rate has to be
+    /// above twice the monitor's refresh rate to never sleep. Capped at 600: ddagrab waits half a frame in
+    /// whole milliseconds for a new desktop image, and above ~666 that rounds to 0 ms (a busy loop).
+    /// </summary>
+    public static int DdaCaptureRate(int fps, int refreshHz)
+        => Math.Clamp(2 * Math.Max(fps, refreshHz > 0 ? refreshHz : 240) + 20, 60, 600);
 
     /// <summary>
     /// Windows Graphics Capture: delivers a frame whenever the compositor has a new one.
-    /// ddagrab paces itself with Sleep(), which Windows rounds to 15.6 ms for processes that don't raise the
-    /// timer resolution (ffmpeg doesn't), so it tops out around 80 fps.
     /// max_framerate becomes the session's MinUpdateInterval: Windows drops every frame that comes sooner than
     /// that after the previous one. At exactly the target rate a frame that is a hair early is lost and the next
     /// one comes a whole refresh later, which gave ~100 instead of 120 fps. So capture is allowed at twice the
-    /// target and <see cref="WgcPacing"/> thins it out to one frame per 1/fps slot.
+    /// target and <see cref="Pacing"/> thins it out to one frame per 1/fps slot.
     /// </summary>
     public static string Gfxcapture(int monitorIndex, int fps, bool cursor)
         => $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={WgcCaptureRate(fps)}" +
@@ -134,41 +147,40 @@ public static class PipelineBuilder
     public static int WgcCaptureRate(int fps) => Math.Clamp(fps * 2, 1, 1000);
 
     /// <summary>
-    /// Keeps the first frame of every 1/fps slot (no duplicates: Graphics Capture sends nothing while the
-    /// screen stands still, and filling such gaps would flood the encoder once frames come again).
+    /// Both capture paths deliver frames faster than the target and only when the screen changes. This keeps
+    /// the first frame of every 1/fps slot. No duplicates: filling a long still period with copies would flood
+    /// the encoder once frames come again.
     /// The slot index is round(t*fps), the same rounding FFmpeg applies when it puts the timestamps on the
     /// 1/fps encoder time base, so kept frames never share a tick.
     /// </summary>
-    public static string WgcPacing(int fps)
+    public static string Pacing(int fps)
     {
         string f = fps.ToString(CultureInfo.InvariantCulture);
         return $"select=round(t*{f})-round(prev_selected_t*{f})";
     }
 
     /// <summary>
-    /// Video filter chain including source-specific pacing. For Graphics Capture the declared frame rate
-    /// (twice the target, from max_framerate) is stripped at the end, so encoders take their rate-control
-    /// frame rate from the 1/fps time base; otherwise NVENC would plan for 240 frames and reach half the bitrate.
+    /// Video filter chain with pacing. The declared frame rate (the capture rate, well above the target) is
+    /// stripped at the end, so encoders take their rate-control frame rate from the 1/fps time base; otherwise
+    /// NVENC would plan for 240 or 500 frames per second and reach a fraction of the bitrate.
     /// Stripped last because vpp_qsv and friends read the frame rate.
     /// </summary>
-    public static string? VideoFilterChain(PipelineSpec p, int fps)
+    public static string VideoFilterChain(PipelineSpec p, int fps)
     {
-        if (p.Source != VideoSource.Wgc) return p.VideoFilter;
-        var parts = new List<string> { WgcPacing(fps) };
+        var parts = new List<string> { Pacing(fps) };
         if (!string.IsNullOrEmpty(p.VideoFilter)) parts.Add(p.VideoFilter);
         parts.Add("setpts=strip_fps=1");
         return string.Join(',', parts);
     }
 
-    /// <summary>
-    /// Encoder time base. Desktop Duplication: fine-grained, so the exact capture times survive.
-    /// Graphics Capture: the 1/fps slot grid, which also tells the encoder the frame rate.
-    /// </summary>
-    public static string EncoderTimeBase(PipelineSpec p, int fps)
-        => p.Source == VideoSource.Wgc ? "1:" + fps.ToString(CultureInfo.InvariantCulture) : "1:90000";
+    /// <summary>Encoder time base: the 1/fps slot grid, which also tells the encoder the frame rate.</summary>
+    public static string EncoderTimeBase(int fps) => "1:" + fps.ToString(CultureInfo.InvariantCulture);
 
-    public static string SourceGraph(PipelineSpec p, MonitorInfo mon, int fps, bool cursor)
-        => p.Source == VideoSource.Wgc ? Gfxcapture(mon.Index, fps, cursor) : Ddagrab(mon.DdaIndex, fps, cursor);
+    /// <param name="test">Encoder tests duplicate frames on a still desktop instead of waiting for a change.</param>
+    public static string SourceGraph(PipelineSpec p, MonitorInfo mon, int fps, bool cursor, bool test = false)
+        => p.Source == VideoSource.Wgc
+            ? Gfxcapture(mon.Index, fps, cursor)
+            : Ddagrab(mon.DdaIndex, DdaCaptureRate(fps, mon.RefreshHz), cursor, dupFrames: test);
 
     /// <summary>Capture sources to try, preferred first.</summary>
     public static IReadOnlyList<VideoSource> Sources(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
@@ -387,11 +399,10 @@ public static class PipelineBuilder
         }
 
         // VFR passthrough keeps the capture times (a CFR conversion would duplicate frames to fill every gap).
-        // See EncoderTimeBase and VideoFilterChain for how the time base differs per capture source.
-        a.AddRange(new[] { "-copyts", "-fps_mode", "passthrough", "-enc_time_base:v", EncoderTimeBase(p, s.Fps), "-map", "0:v" });
+        // Pacing and the 1/fps time base: see VideoFilterChain.
+        a.AddRange(new[] { "-copyts", "-fps_mode", "passthrough", "-enc_time_base:v", EncoderTimeBase(s.Fps), "-map", "0:v" });
         if (audio) a.AddRange(new[] { "-map", "1:a" });
-        var vf = VideoFilterChain(p, s.Fps);
-        if (!string.IsNullOrEmpty(vf)) a.AddRange(new[] { "-vf", vf });
+        a.AddRange(new[] { "-vf", VideoFilterChain(p, s.Fps) });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);
         if (audio) a.AddRange(new[] { "-c:a", "aac", "-b:a", $"{s.AudioBitrateKbps}k" });
@@ -414,11 +425,9 @@ public static class PipelineBuilder
         a.AddRange(p.GlobalArgs);
         // Graphics Capture only delivers frames when the screen changes; one frame is enough to validate the path.
         string frames = p.Source == VideoSource.Wgc ? "1" : "15";
-        a.AddRange(new[] { "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, false), "-frames:v", frames });
+        a.AddRange(new[] { "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, false, test: true), "-frames:v", frames });
         // Same chain and time base as the recording, so the test covers them too.
-        if (p.Source == VideoSource.Wgc) a.AddRange(new[] { "-enc_time_base:v", EncoderTimeBase(p, s.Fps) });
-        var vf = VideoFilterChain(p, s.Fps);
-        if (!string.IsNullOrEmpty(vf)) a.AddRange(new[] { "-vf", vf });
+        a.AddRange(new[] { "-enc_time_base:v", EncoderTimeBase(s.Fps), "-vf", VideoFilterChain(p, s.Fps) });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);
         a.AddRange(new[] { "-f", "null", "-" });

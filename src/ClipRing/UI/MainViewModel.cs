@@ -80,7 +80,7 @@ public sealed class MainViewModel : ObservableObject
     {
         new(CaptureMethod.Auto, "Automatisch (empfohlen)"),
         new(CaptureMethod.WindowsGraphicsCapture, "Windows Graphics Capture"),
-        new(CaptureMethod.DesktopDuplication, "Desktop Duplication (max. ca. 80 fps)"),
+        new(CaptureMethod.DesktopDuplication, "Desktop Duplication"),
     };
 
     public IReadOnlyList<Option<VideoCodec>> CodecOptions { get; } = new Option<VideoCodec>[]

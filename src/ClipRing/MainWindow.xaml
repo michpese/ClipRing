@@ -249,7 +249,7 @@
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Fps}" />
                                 </ui:SettingRow>
                                 <ui:SettingRow Title="Aufnahmemethode"
-                                               Description="Windows Graphics Capture schafft hohe Bildraten und liefert nur dann Bilder, wenn sich etwas ändert. Desktop Duplication ist die ältere Methode und kommt unter Windows nur auf etwa 80 fps.">
+                                               Description="Beide schaffen hohe Bildraten. Zeigt die Aufnahme eines Spiels Flackern oder alte Bilder (z. B. den Ladebildschirm), die andere Methode probieren.">
                                     <ComboBox Width="280" ItemsSource="{Binding CaptureMethodOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.CaptureMethod}" />
                                 </ui:SettingRow>
