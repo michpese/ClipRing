@@ -271,7 +271,7 @@
                                     <TextBlock Text="{Binding Service.EncoderText}" Style="{StaticResource Text.Value}" MaxWidth="300"
                                                TextAlignment="Right" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Encoder-Tempo" Description="Schnell entlastet die Grafikkarte, Qualität holt mehr aus derselben Bitrate.">
+                                <ui:SettingRow Title="Encoder-Tempo" Description="Schnell entlastet die Grafikkarte und schafft auch 4K mit 120 fps. Qualität holt mehr aus derselben Bitrate. Ruckeln Clips, eine Stufe schneller wählen.">
                                     <ComboBox Width="280" ItemsSource="{Binding SpeedOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Speed}" />
                                 </ui:SettingRow>
@@ -476,7 +476,7 @@
                                 <ui:SettingRow Title="Benachrichtigung anzeigen" Description="Windows-Hinweis mit Spiel, Länge und Größe des Clips.">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.NotifyOnSave}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Ton abspielen" Description="Kurzer Signalton, damit du im Spiel weißt, dass es geklappt hat." ShowDivider="False">
+                                <ui:SettingRow Title="Ton abspielen" Description="Kurzer Signalton beim Speichern per Hotkey, damit du im Spiel weißt, dass es geklappt hat. Automatische Highlights bleiben stumm." ShowDivider="False">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PlaySoundOnSave}" />
                                 </ui:SettingRow>
                             </StackPanel>
@@ -565,6 +565,10 @@
                                 </ui:SettingRow>
                                 <ui:SettingRow Title="Status">
                                     <TextBlock Text="{Binding Service.Cs2StatusText}" Style="{StaticResource Text.Value}" MaxWidth="340" TextAlignment="Right" />
+                                </ui:SettingRow>
+                                <ui:SettingRow Title="Spielmodi" Description="Deathmatch und Gelegenheitsspiele erzeugen sonst sehr viele Clips.">
+                                    <ComboBox Width="260" ItemsSource="{Binding Cs2ModeOptions}" DisplayMemberPath="Label"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.Cs2Modes}" />
                                 </ui:SettingRow>
                                 <ui:SettingRow Title="Clip erstellen">
                                     <ComboBox Width="200" ItemsSource="{Binding KillOptions}" DisplayMemberPath="Label"

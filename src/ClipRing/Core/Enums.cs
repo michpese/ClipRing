@@ -14,3 +14,6 @@ public enum RateControlMode { Vbr, Cbr }
 public enum EncoderSpeed { Fast, Balanced, Quality }
 
 public enum ReplayState { Initializing, Starting, Running, Paused, WaitingForGame, Error }
+
+/// <summary>Which Counter-Strike 2 modes create automatic highlight clips.</summary>
+public enum Cs2ModeFilter { Competitive, CompetitiveAndWingman, All }

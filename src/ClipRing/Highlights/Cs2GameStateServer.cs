@@ -33,11 +33,26 @@ public sealed class Cs2GameStateServer : IDisposable
         _ignoreWarmup = ignoreWarmup;
     }
 
-    /// <summary>kills, headshots</summary>
-    public event Action<int, int>? KillsDetected;
+    /// <summary>kills, headshots, game mode (GSI map.mode, e.g. "competitive", "deathmatch")</summary>
+    public event Action<int, int, string?>? KillsDetected;
 
     public DateTime LastMessageUtc { get; private set; } = DateTime.MinValue;
     public string? LastMap { get; private set; }
+    public string? LastMode { get; private set; }
+
+    /// <summary>German display name of a GSI game mode.</summary>
+    public static string ModeName(string? mode) => mode switch
+    {
+        "competitive" or "premier" => "Wettkampf",
+        "scrimcomp2v2" => "Wingman",
+        "casual" => "Gelegenheitsspiel",
+        "deathmatch" => "Deathmatch",
+        "gungameprogressive" => "Wettrüsten",
+        "gungametrbomb" => "Demolition",
+        "custom" => "Benutzerdefiniert",
+        null or "" => "unbekannter Modus",
+        _ => mode,
+    };
 
     public void Start()
     {
@@ -149,6 +164,7 @@ public sealed class Cs2GameStateServer : IDisposable
         if (root.TryGetProperty("map", out var map))
         {
             if (map.TryGetProperty("name", out var mn)) LastMap = mn.GetString();
+            if (map.TryGetProperty("mode", out var md)) LastMode = md.GetString();
         }
         string? phase = root.TryGetProperty("map", out var m2) && m2.TryGetProperty("phase", out var ph) ? ph.GetString() : null;
 
@@ -173,7 +189,7 @@ public sealed class Cs2GameStateServer : IDisposable
 
         int kills = roundKills - previousKills.Value;
         int headshots = Math.Max(0, roundHs - previousHs);
-        KillsDetected?.Invoke(kills, Math.Min(headshots, kills));
+        KillsDetected?.Invoke(kills, Math.Min(headshots, kills), LastMode);
     }
 
     public void Dispose()

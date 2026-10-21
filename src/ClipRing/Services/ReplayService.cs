@@ -49,6 +49,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private ReplayRecorder? _watchdogFiredFor;
     private int _noDataWithAudio;
     private bool _audioFallback;
+    private ReplayRecorder? _slowEncoderWarnedFor;
 
     public ReplayService(AppSettings settings, Dispatcher ui)
     {
@@ -433,7 +434,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         var recorder = _recorder;
         if (recorder is null || recorder.HasProducedData || ReferenceEquals(recorder, _watchdogFiredFor)) return;
-        if (DateTime.UtcNow - recorder.StartedUtc < NoDataTimeout) return;
+        if (recorder.StartedUtc == default || DateTime.UtcNow - recorder.StartedUtc < NoDataTimeout) return;
 
         _watchdogFiredFor = recorder;
         Log.Warn($"Keine Daten von FFmpeg nach {NoDataTimeout.TotalSeconds:0} s. {recorder.DiagnosticSummary()}");
@@ -445,6 +446,24 @@ public sealed class ReplayService : ObservableObject, IDisposable
                            "Mit Tonspur hat FFmpeg keine Daten geliefert. Details stehen im Protokoll.");
         }
         OnRecorderFaulted(recorder, $"FFmpeg hat nach {NoDataTimeout.TotalSeconds:0} s noch keine Daten geliefert");
+    }
+
+    /// <summary>Warns once per recording when the encoder delivers clearly fewer frames than requested.</summary>
+    private void CheckEncoderSpeed()
+    {
+        var recorder = _recorder;
+        if (recorder is null || !recorder.HasProducedData || ReferenceEquals(recorder, _slowEncoderWarnedFor)) return;
+        if (DateTime.UtcNow - recorder.StartedUtc < TimeSpan.FromSeconds(25)) return;
+        if (recorder.EncoderFps is not double fps || fps >= Settings.Fps * 0.9) return;
+
+        _slowEncoderWarnedFor = recorder;
+        string message = $"Der Encoder schafft nur {fps:0} von {Settings.Fps} Bildern pro Sekunde, Clips ruckeln dadurch. " +
+                         "Abhilfe: Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung. " +
+                         "Läuft gleichzeitig NVIDIA Instant Replay oder eine andere Aufnahme, teilen sie sich den Encoder.";
+        Log.Warn($"Encoder zu langsam: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {Settings.Speed}, " +
+                 $"{_pipeline?.OutWidth}x{_pipeline?.OutHeight})");
+        StatusText = message;
+        Notify?.Invoke("Aufnahme ruckelt", $"Nur {fps:0} von {Settings.Fps} fps. Details auf der Übersicht.");
     }
 
     private void ResetAudioFallback()
@@ -511,13 +530,15 @@ public sealed class ReplayService : ObservableObject, IDisposable
     public async Task<SavedClip?> SaveClipAsync(double seconds, string? tag = null, string? gameOverride = null,
                                                 string reason = "Hotkey")
     {
+        // Confirmation sounds only for saves the player triggered; automatic highlights stay silent.
+        bool manual = reason != "Highlight";
         var ffmpeg = Ffmpeg;
         var recorder = _recorder;
         if (ffmpeg is null || recorder is null || !recorder.HasProducedData)
         {
             Log.Warn($"Clip nicht gespeichert ({reason}{(tag is null ? "" : ", " + tag)}): Replay läuft nicht (Zustand: {StateTitle})");
             Notify?.Invoke("Kein Clip gespeichert", "Das Replay läuft gerade nicht.");
-            if (Settings.PlaySoundOnSave) Sounds.PlayFailed();
+            if (manual && Settings.PlaySoundOnSave) Sounds.PlayFailed();
             return null;
         }
 
@@ -535,14 +556,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
             });
             if (Settings.NotifyOnSave)
                 Notify?.Invoke("Clip gespeichert", $"{clip.Game}: {clip.DurationText} min, {clip.SizeText}");
-            if (Settings.PlaySoundOnSave) Sounds.PlaySaved();
+            if (manual && Settings.PlaySoundOnSave) Sounds.PlaySaved();
             return clip;
         }
         catch (Exception ex)
         {
             Log.Error("Clip konnte nicht gespeichert werden", ex);
             Notify?.Invoke("Clip nicht gespeichert", ex.Message);
-            if (Settings.PlaySoundOnSave) Sounds.PlayFailed();
+            if (manual && Settings.PlaySoundOnSave) Sounds.PlayFailed();
             return null;
         }
         finally
@@ -557,6 +578,19 @@ public sealed class ReplayService : ObservableObject, IDisposable
         {
             var root = Settings.OutputFolder;
             if (!Directory.Exists(root)) return;
+
+            // Leftovers of interrupted saves (".<name>.part.mp4") older than 10 minutes.
+            foreach (var part in new DirectoryInfo(root).EnumerateFiles(".*.part.mp4", SearchOption.AllDirectories))
+            {
+                if (DateTime.Now - part.LastWriteTime < TimeSpan.FromMinutes(10)) continue;
+                try
+                {
+                    part.Delete();
+                    Log.Info("Reste eines abgebrochenen Speichervorgangs gelöscht: " + part.FullName);
+                }
+                catch { /* still in use */ }
+            }
+
             var files = new DirectoryInfo(root)
                 .EnumerateFiles("*.mp4", SearchOption.AllDirectories)
                 .Where(f => !f.Name.StartsWith('.'))
@@ -680,8 +714,18 @@ public sealed class ReplayService : ObservableObject, IDisposable
             try
             {
                 var server = new Cs2GameStateServer(Settings.Cs2Port, Settings.Cs2Token, Settings.Cs2IgnoreWarmup);
-                server.KillsDetected += (kills, hs) =>
+                server.KillsDetected += (kills, hs, mode) =>
+                {
+                    if (!Cs2ModeAllowed(mode))
+                    {
+                        if (mode != _cs2IgnoredMode)
+                            Log.Info($"CS2-Kills im Modus {Cs2GameStateServer.ModeName(mode)} werden ignoriert (Einstellung)");
+                        _cs2IgnoredMode = mode;
+                        return;
+                    }
+                    _cs2IgnoredMode = null;
                     _highlights.ReportKills(Cs2GameStateServer.GameName, kills, hs, Settings.Cs2MinKills);
+                };
                 server.Start();
                 _cs2 = server;
             }
@@ -699,6 +743,15 @@ public sealed class ReplayService : ObservableObject, IDisposable
         // VALORANT: detector is (re)created by UpdateValorantDetector when the game runs.
         StopValorantDetector();
     }
+
+    private string? _cs2IgnoredMode;
+
+    private bool Cs2ModeAllowed(string? mode) => Settings.Cs2Modes switch
+    {
+        Cs2ModeFilter.All => true,
+        Cs2ModeFilter.CompetitiveAndWingman => mode is "competitive" or "premier" or "scrimcomp2v2",
+        _ => mode is "competitive" or "premier",
+    };
 
     private void StopValorantDetector()
     {
@@ -780,6 +833,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             if (++_statsTick % 8 != 0) return; // the rest every 2 s
 
             CheckRecorderWatchdog();
+            CheckEncoderSpeed();
 
             if (_cs2 is not null)
             {
@@ -787,7 +841,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 Cs2StatusText = last == DateTime.MinValue
                     ? "Bereit. Warte auf Daten von CS2 (nach dem Einrichten das Spiel neu starten)."
                     : DateTime.UtcNow - last < TimeSpan.FromSeconds(45)
-                        ? $"Verbunden{(string.IsNullOrEmpty(_cs2.LastMap) ? "" : $", Karte {_cs2.LastMap}")}"
+                        ? $"Verbunden{(string.IsNullOrEmpty(_cs2.LastMap) ? "" : $", {_cs2.LastMap}")}" +
+                          (_cs2.LastMode is null ? "" :
+                              $", {Cs2GameStateServer.ModeName(_cs2.LastMode)}{(Cs2ModeAllowed(_cs2.LastMode) ? "" : " (keine Highlights)")}")
                         : $"Letzte Daten vor {(DateTime.UtcNow - last).TotalMinutes:0} min";
             }
 

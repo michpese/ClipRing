@@ -47,8 +47,19 @@ public static class Shell
     {
         try
         {
-            var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
-            psi.ArgumentList.Add("/select," + file);
+            if (!File.Exists(file))
+            {
+                var folder = Path.GetDirectoryName(file);
+                if (folder is not null && Directory.Exists(folder)) Open(folder);
+                return;
+            }
+            // Explorer needs exactly /select,"path" - ArgumentList would quote the whole token
+            // ("/select,path"), which Explorer ignores and opens a default folder instead.
+            var psi = new ProcessStartInfo("explorer.exe")
+            {
+                UseShellExecute = false,
+                Arguments = $"/select,\"{file}\"",
+            };
             Process.Start(psi);
         }
         catch (Exception ex)

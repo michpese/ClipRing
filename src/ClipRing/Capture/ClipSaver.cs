@@ -53,18 +53,26 @@ public sealed class ClipSaver
             string target = UniquePath(Path.Combine(folder, name + ".mp4"));
             string temp = Path.Combine(folder, "." + Path.GetFileNameWithoutExtension(target) + ".part.mp4");
 
-            bool done = false;
-            if (settings.RemuxToStandardMp4)
-                done = await RemuxAsync(ffmpeg, snapshot, temp, ct).ConfigureAwait(false);
-
-            if (!done)
+            try
             {
-                // Fallback: the fragmented MP4 as-is (plays everywhere, some editors dislike it).
-                await using var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
-                await snapshot.WriteToAsync(fs, ct).ConfigureAwait(false);
-            }
+                bool done = false;
+                if (settings.RemuxToStandardMp4)
+                    done = await RemuxAsync(ffmpeg, snapshot, temp, ct).ConfigureAwait(false);
 
-            File.Move(temp, target, overwrite: false);
+                if (!done)
+                {
+                    // Fallback: the fragmented MP4 as-is (plays everywhere, some editors dislike it).
+                    await using var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
+                    await snapshot.WriteToAsync(fs, ct).ConfigureAwait(false);
+                }
+
+                await MoveIntoPlaceAsync(temp, target, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                TryDelete(temp);
+                throw;
+            }
             var size = new FileInfo(target).Length;
             Log.Info($"Clip gespeichert ({request.Reason}): {target} ({snapshot.Duration:F1}s, {size / 1048576.0:F1} MB)");
             return new SavedClip(target, request.Game, snapshot.Duration, size, request.Tag, DateTime.Now);
@@ -73,6 +81,46 @@ public sealed class ClipSaver
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Renames the finished temp file. Virus scanners and Explorer's thumbnailer often open a brand-new
+    /// file for a moment, which blocks renaming; retry for a while, then copy instead.
+    /// </summary>
+    private static async Task MoveIntoPlaceAsync(string temp, string target, CancellationToken ct)
+    {
+        IOException? last = null;
+        for (int attempt = 0; attempt < 12; attempt++)
+        {
+            try
+            {
+                File.Move(temp, target, overwrite: false);
+                if (attempt > 0) Log.Info($"Clip nach {attempt + 1} Versuchen umbenannt (Datei war kurz gesperrt)");
+                return;
+            }
+            catch (IOException ex) when (!File.Exists(target))
+            {
+                last = ex;
+                await Task.Delay(150 + attempt * 100, ct).ConfigureAwait(false);
+            }
+        }
+
+        // Reading is usually still allowed while another program holds the file: copy, then clean up.
+        Log.Warn($"Umbenennen blockiert ({last?.Message}), Clip wird kopiert");
+        File.Copy(temp, target, overwrite: false);
+        _ = Task.Run(async () =>
+        {
+            for (int i = 0; i < 30 && File.Exists(temp); i++)
+            {
+                TryDelete(temp);
+                await Task.Delay(2000).ConfigureAwait(false);
+            }
+        });
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* still locked: try again later */ }
     }
 
     private static async Task WaitForStreamTimeAsync(ReplayBuffer buffer, double? anchor, TimeSpan timeout, CancellationToken ct)

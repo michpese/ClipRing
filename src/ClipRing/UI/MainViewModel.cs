@@ -116,6 +116,13 @@ public sealed class MainViewModel : ObservableObject
     public IReadOnlyList<Option<int>> ShortClipOptions { get; } = new[] { 10, 15, 20, 30, 45, 60, 90, 120 }
         .Select(s => new Option<int>(s, $"{s} Sekunden")).ToArray();
 
+    public IReadOnlyList<Option<Cs2ModeFilter>> Cs2ModeOptions { get; } = new Option<Cs2ModeFilter>[]
+    {
+        new(Cs2ModeFilter.Competitive, "Nur Wettkampf und Premier"),
+        new(Cs2ModeFilter.CompetitiveAndWingman, "Wettkampf, Premier und Wingman"),
+        new(Cs2ModeFilter.All, "Alle Modi"),
+    };
+
     public IReadOnlyList<Option<int>> KillOptions { get; } = new Option<int>[]
     {
         new(1, "Jeder Kill"), new(2, "Ab 2 Kills"), new(3, "Ab 3 Kills"), new(4, "Ab 4 Kills"), new(5, "Nur Ace"),

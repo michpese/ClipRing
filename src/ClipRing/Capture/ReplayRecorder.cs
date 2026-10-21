@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using ClipRing.Audio;
 using ClipRing.Core;
 using ClipRing.Native;
@@ -42,8 +44,12 @@ public sealed class ReplayRecorder : IDisposable
     public DateTime StartedUtc { get; private set; }
     public bool HasProducedData { get; private set; }
 
+    /// <summary>Average encoded frames per second reported by ffmpeg (null until the first status line).</summary>
+    public double? EncoderFps { get; private set; }
+
     public void Start(string ffmpegPath, IReadOnlyList<string> args, AudioEngine? audio)
     {
+        StartedUtc = DateTime.UtcNow; // before anything else: the watchdog may look at it right away
         var psi = new ProcessStartInfo(ffmpegPath)
         {
             UseShellExecute = false,
@@ -61,7 +67,6 @@ public sealed class ReplayRecorder : IDisposable
         _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _process.Exited += OnProcessExited;
         _process.Start();
-        StartedUtc = DateTime.UtcNow;
         ChildProcessJob.Add(_process);
         try { _process.PriorityClass = ProcessPriorityClass.AboveNormal; } catch { /* not allowed: fine */ }
 
@@ -101,6 +106,9 @@ public sealed class ReplayRecorder : IDisposable
                 {
                     _lastStats = line;
                     _statsLines++;
+                    var fps = Regex.Match(line, @"\bfps=\s*([0-9]+(?:\.[0-9]+)?)");
+                    if (fps.Success && double.TryParse(fps.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+                        EncoderFps = value;
                     if (!HasProducedData || _statsLines <= 6 || _statsLines % 60 == 0) Log.Info("ffmpeg-Status: " + line);
                     continue;
                 }

@@ -203,10 +203,12 @@ public static class PipelineBuilder
         switch (backend)
         {
             case EncoderBackend.Nvenc:
+                // Realtime capture needs fast presets: p5-p7 are far too slow for 4K/120 and also keep the
+                // driver from splitting 4K frames across several NVENC units (split_encode_mode=auto).
                 a.AddRange(new[]
                 {
-                    "-preset", s.Speed switch { EncoderSpeed.Fast => "p3", EncoderSpeed.Quality => "p7", _ => "p5" },
-                    "-tune", "hq",
+                    "-preset", s.Speed switch { EncoderSpeed.Fast => "p1", EncoderSpeed.Quality => "p4", _ => "p3" },
+                    "-tune", s.Speed == EncoderSpeed.Fast ? "ll" : "hq",
                     "-rc", cbr ? "cbr" : "vbr",
                     "-b:v", b, "-maxrate", max, "-bufsize", buf,
                     "-g", gop,
@@ -228,7 +230,7 @@ public static class PipelineBuilder
                 // QSV picks CBR when maxrate == bitrate, VBR otherwise.
                 a.AddRange(new[]
                 {
-                    "-preset", s.Speed switch { EncoderSpeed.Fast => "veryfast", EncoderSpeed.Quality => "slower", _ => "medium" },
+                    "-preset", s.Speed switch { EncoderSpeed.Fast => "veryfast", EncoderSpeed.Quality => "medium", _ => "faster" },
                     "-b:v", b, "-maxrate", max, "-bufsize", buf,
                     "-g", gop,
                 });

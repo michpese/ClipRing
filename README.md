@@ -96,7 +96,7 @@ Hotkey ─▶ Schnappschuss der letzten N s ─▶ ffmpeg -c copy (ohne Neukodie
 
 1. Unter „Highlights“ auf **Einrichten** klicken. Das legt `gamestate_integration_cliprings.cfg` in `…\Counter-Strike Global Offensive\game\csgo\cfg\` ab.
 2. CS2 neu starten. Der Status zeigt „Verbunden“, sobald Daten kommen.
-3. Wählen, ab wie vielen Kills ein Clip entsteht. Kills kurz hintereinander werden zusammengefasst (Dateiname z. B. `…_3K.mp4`, `…_Ace.mp4`).
+3. Wählen, ab wie vielen Kills ein Clip entsteht und in welchen Spielmodi (Standard: nur Wettkampf und Premier). Kills kurz hintereinander werden zusammengefasst (Dateiname z. B. `…_3K.mp4`, `…_Ace.mp4`). Automatische Highlights spielen keinen Signalton.
 
 **VALORANT (experimentell)**
 
@@ -149,6 +149,7 @@ src/ClipRing/
 - Die Dateien haben eine variable Bildrate (exakte Aufnahmezeiten). Einige Schnittprogramme wie Premiere wandeln das beim Import um.
 - HDR wird als SDR aufgenommen; DRM-geschützte Inhalte erscheinen schwarz.
 - Bei voller GPU-Last kann die Desktop-Duplizierung Bilder auslassen (FFmpeg läuft mit erhöhter CPU-Priorität, eine GPU-Priorität setzt es nicht).
+- Schafft der Encoder die eingestellte Bildrate nicht, zeigt die Übersicht eine Warnung. Dann hilft ein schnelleres Encoder-Tempo. Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder.
 
 ## Ideen für die nächste Iteration
 

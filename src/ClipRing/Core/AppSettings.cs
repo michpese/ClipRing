@@ -127,6 +127,10 @@ public sealed class AppSettings : ObservableObject
     private int _cs2MinKills = 1;
     public int Cs2MinKills { get => _cs2MinKills; set => Set(ref _cs2MinKills, Math.Clamp(value, 1, 5)); }
 
+    private Cs2ModeFilter _cs2Modes = Cs2ModeFilter.Competitive;
+    /// <summary>Game modes that create highlights. Premier counts as competitive.</summary>
+    public Cs2ModeFilter Cs2Modes { get => _cs2Modes; set => Set(ref _cs2Modes, value); }
+
     private bool _cs2IgnoreWarmup = true;
     public bool Cs2IgnoreWarmup { get => _cs2IgnoreWarmup; set => Set(ref _cs2IgnoreWarmup, value); }
 
