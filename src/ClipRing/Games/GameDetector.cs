@@ -5,7 +5,9 @@ using ClipRing.Native;
 
 namespace ClipRing.Games;
 
-public sealed record GameInfo(string ProcessName, string ExePath, string DisplayName, int ProcessId, string Source)
+/// <param name="Window">The game's foreground window when it was last seen in front.</param>
+public sealed record GameInfo(string ProcessName, string ExePath, string DisplayName, int ProcessId, string Source,
+                              nint Window = 0)
 {
     public bool IsSameGame(GameInfo? other)
         => other is not null && other.ProcessId == ProcessId &&
@@ -101,6 +103,17 @@ public sealed partial class GameDetector : IDisposable
         }
     }
 
+    /// <summary>
+    /// Window of the game to record: the last game window that was in front, as long as it still exists
+    /// and its process runs (also while alt-tabbed). 0 if there is none.
+    /// </summary>
+    public nint CaptureWindow()
+    {
+        var game = LastSeen;
+        if (game is null || game.Window == 0 || !Win32.IsWindow(game.Window) || !IsRunning(game)) return 0;
+        return game.Window;
+    }
+
     /// <summary>True while the last detected game process is alive (even if alt-tabbed).</summary>
     public bool IsGameRunning => Current is not null || (LastSeen is not null && IsRunning(LastSeen));
 
@@ -119,6 +132,7 @@ public sealed partial class GameDetector : IDisposable
             if (path is null) return;
 
             var game = Classify(hwnd, (int)pid, path);
+            if (game is not null) game = game with { Window = hwnd };
             ForegroundDescription = game is null
                 ? $"{Path.GetFileName(path)}: kein Spiel"
                 : $"{Path.GetFileName(path)}: {game.DisplayName} (erkannt über {game.Source})";

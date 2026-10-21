@@ -147,6 +147,17 @@ public static class PipelineBuilder
     public static int WgcCaptureRate(int fps) => Math.Clamp(fps * 2, 1, 1000);
 
     /// <summary>
+    /// Graphics Capture of a single window (the game). The frames come from what the game itself presents,
+    /// not from the composed desktop. That matters for games in independent flip / overlay planes, where the
+    /// composed desktop can still hold an old image of the game window (CS2 flickered back to its loading
+    /// screen in monitor capture). Scaled to the monitor size the rest of the pipeline is built for; a
+    /// fullscreen game window has exactly that size anyway.
+    /// </summary>
+    public static string GfxcaptureWindow(nint hwnd, int width, int height, int fps, bool cursor)
+        => $"gfxcapture=hwnd={((ulong)hwnd).ToString(CultureInfo.InvariantCulture)}:width={width}:height={height}" +
+           $":resize_mode=scale:max_framerate={WgcCaptureRate(fps)}:capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+
+    /// <summary>
     /// Both capture paths deliver frames faster than the target and only when the screen changes. This keeps
     /// the first frame of every 1/fps slot. No duplicates: filling a long still period with copies would flood
     /// the encoder once frames come again.
@@ -377,7 +388,9 @@ public static class PipelineBuilder
     /// is at ~1.8e9 s, and FFmpeg's scheduler holds the video back until audio "catches up".
     /// Output is fragmented MP4 (one fragment per keyframe) on stdout, which the app keeps in RAM.
     /// </summary>
-    public static List<string> BuildRecordArgs(PipelineSpec p, MonitorInfo mon, AppSettings s, double? audioStartUnix)
+    /// <param name="gameWindow">With a Graphics Capture pipeline: record this window instead of the monitor.</param>
+    public static List<string> BuildRecordArgs(PipelineSpec p, MonitorInfo mon, AppSettings s, double? audioStartUnix,
+                                               nint gameWindow = 0)
     {
         bool audio = audioStartUnix.HasValue;
         // -nostdin only disables keyboard commands; the PCM stream on pipe:0 still works.
@@ -386,7 +399,10 @@ public static class PipelineBuilder
         a.AddRange(p.GlobalArgs);
         if (audio)
             a.AddRange(new[] { "-itsoffset", (-audioStartUnix!.Value).ToString("F6", CultureInfo.InvariantCulture) });
-        a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, s.CaptureCursor) });
+        string source = gameWindow != 0 && p.Source == VideoSource.Wgc
+            ? GfxcaptureWindow(gameWindow, mon.Width, mon.Height, s.Fps, s.CaptureCursor)
+            : SourceGraph(p, mon, s.Fps, s.CaptureCursor);
+        a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", source });
 
         if (audio)
         {

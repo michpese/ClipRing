@@ -81,6 +81,7 @@ public sealed class MainViewModel : ObservableObject
         new(CaptureMethod.Auto, "Automatisch (empfohlen)"),
         new(CaptureMethod.WindowsGraphicsCapture, "Windows Graphics Capture"),
         new(CaptureMethod.DesktopDuplication, "Desktop Duplication"),
+        new(CaptureMethod.GameWindow, "Spielfenster (Graphics Capture)"),
     };
 
     public IReadOnlyList<Option<VideoCodec>> CodecOptions { get; } = new Option<VideoCodec>[]

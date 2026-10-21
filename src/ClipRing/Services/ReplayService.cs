@@ -51,6 +51,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private bool _audioFallback;
     private ReplayRecorder? _slowEncoderWarnedFor;
 
+    // "Spielfenster": window being recorded (0 = monitor), and a window that could not be recorded.
+    private nint _recordingWindow;
+    private nint _windowCaptureFailed;
+
     public ReplayService(AppSettings settings, Dispatcher ui)
     {
         Settings = settings;
@@ -408,7 +412,17 @@ public sealed class ReplayService : ObservableObject, IDisposable
             double? audioStart = null;
             if (withAudio) audioStart = _audio.BeginStream() + Settings.AudioOffsetMs / 1000.0;
 
-            var args = PipelineBuilder.BuildRecordArgs(pipeline, monitor, Settings, audioStart);
+            nint window = 0;
+            if (Settings.CaptureMethod == CaptureMethod.GameWindow && pipeline.Source == VideoSource.Wgc)
+            {
+                window = _games.CaptureWindow();
+                if (window != 0 && window == _windowCaptureFailed) window = 0;
+                Log.Info(window != 0
+                    ? $"Nehme das Spielfenster auf ({_games.LastSeen?.DisplayName})"
+                    : "Kein Spielfenster verfügbar, nehme den Monitor auf");
+            }
+
+            var args = PipelineBuilder.BuildRecordArgs(pipeline, monitor, Settings, audioStart, window);
             _buffer.TargetSeconds = Settings.BufferSeconds;
 
             var recorder = new ReplayRecorder(_buffer);
@@ -417,6 +431,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             _recorder = recorder; // before Start: its events may fire right away
             _pipeline = pipeline;
             _pipelineHasAudio = withAudio;
+            _recordingWindow = window;
             try
             {
                 recorder.Start(Ffmpeg.Path, args, withAudio ? _audio : null);
@@ -430,7 +445,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 return;
             }
 
-            EncoderText = $"{pipeline.EncoderLabel}, {pipeline.PathLabel}, {pipeline.SourceLabel}";
+            EncoderText = $"{pipeline.EncoderLabel}, {pipeline.PathLabel}, {pipeline.SourceLabel}" +
+                          (window != 0 ? " (Spielfenster)" : "");
             OutputText = $"{pipeline.OutWidth} × {pipeline.OutHeight}, {Settings.Fps} fps, {pipeline.BitrateKbps / 1000.0:0.#} Mbit/s";
             StatusText = "Aufnahme startet …";
             LastError = null;
@@ -528,6 +544,12 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (!ReferenceEquals(recorder, _recorder) || _disposed) return;
 
         var ranFor = DateTime.UtcNow - recorder.StartedUtc;
+        if (_recordingWindow != 0 && !recorder.HasProducedData)
+        {
+            // Don't loop on a window Graphics Capture can't record (e.g. exclusive fullscreen): use the monitor.
+            _windowCaptureFailed = _recordingWindow;
+            Log.Warn("Das Spielfenster ließ sich nicht aufnehmen, nehme stattdessen den Monitor auf");
+        }
         if (recorder.HasProducedData && ranFor > TimeSpan.FromMinutes(1)) _failures = 0;
         _failures++;
 
@@ -760,7 +782,19 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         GameText = game?.DisplayName ?? "Kein Spiel im Vordergrund";
         if (game is not null && Settings.OnlyWhenGameRunning && State == ReplayState.WaitingForGame)
+        {
             ScheduleRestart("Spiel erkannt", TimeSpan.FromMilliseconds(500), reprobe: false);
+            return;
+        }
+
+        // "Spielfenster": switch to the game's window when it is not the one being recorded yet.
+        if (game is not null && Settings.CaptureMethod == CaptureMethod.GameWindow &&
+            _pipeline?.Source == VideoSource.Wgc && State is ReplayState.Running or ReplayState.Starting)
+        {
+            var window = _games.CaptureWindow();
+            if (window != 0 && window != _recordingWindow && window != _windowCaptureFailed)
+                ScheduleRestart("Spielfenster", TimeSpan.FromMilliseconds(500), reprobe: false);
+        }
     }
 
     private void ApplyHighlights()

@@ -249,7 +249,7 @@
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Fps}" />
                                 </ui:SettingRow>
                                 <ui:SettingRow Title="Aufnahmemethode"
-                                               Description="Beide schaffen hohe Bildraten. Zeigt die Aufnahme eines Spiels Flackern oder alte Bilder (z. B. den Ladebildschirm), die andere Methode probieren.">
+                                               Description="Bildschirm: Windows Graphics Capture oder Desktop Duplication. Spielfenster nimmt nur das erkannte Spiel auf, direkt aus dessen Bildausgabe; das hilft, wenn die Bildschirmaufnahme flackert oder alte Bilder zeigt (z. B. den Ladebildschirm).">
                                     <ComboBox Width="280" ItemsSource="{Binding CaptureMethodOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.CaptureMethod}" />
                                 </ui:SettingRow>
