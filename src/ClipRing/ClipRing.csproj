@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- Only needed for the tray icon (NotifyIcon). Implicit WinForms usings are removed below
+         so that WPF types like Application/MessageBox stay unambiguous. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>ClipRing</RootNamespace>
+    <AssemblyName>ClipRing</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\ClipRing.ico</ApplicationIcon>
+    <Version>0.1.0</Version>
+    <Product>ClipRing</Product>
+    <Description>Instant-Replay-Rekorder mit RAM-Puffer</Description>
+    <SatelliteResourceLanguages>de;en</SatelliteResourceLanguages>
+    <!-- WPF0001: ThemeMode (Fluent theme) is still flagged experimental. CA1416: Windows-only APIs. -->
+    <NoWarn>$(NoWarn);WPF0001;CA1416</NoWarn>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+    <!-- The WPF SDK drops System.IO from the implicit usings (Path clash with System.Windows.Shapes). -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="2.2.1" />
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\ClipRing.ico" />
+    <EmbeddedResource Include="Games\known_games.json" LogicalName="ClipRing.known_games.json" />
+  </ItemGroup>
+
+</Project>

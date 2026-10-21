@@ -1,0 +1,68 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Windows-Build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Kompilieren
+        shell: pwsh
+        run: ./build.ps1 -SkipFfmpeg
+
+      - name: Ergebnis hochladen
+        uses: actions/upload-artifact@v6
+        with:
+          name: ClipRing-${{ github.sha }}
+          path: dist/ClipRing
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Release erstellen
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Bauen inklusive .NET-Runtime und FFmpeg
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build.ps1 -SelfContained
+
+      - name: Zip packen
+        shell: pwsh
+        run: Compress-Archive -Path dist/ClipRing -DestinationPath "dist/ClipRing-${{ github.ref_name }}-win-x64.zip"
+
+      - name: GitHub-Release veröffentlichen
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "${{ github.ref_name }}" "dist/ClipRing-${{ github.ref_name }}-win-x64.zip" --title "ClipRing ${{ github.ref_name }}" --generate-notes
