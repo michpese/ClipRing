@@ -277,11 +277,14 @@ public static class PipelineBuilder
     }
 
     /// <summary>
-    /// Full recorder command line. Timing model:
-    ///  - video packets are stamped with the wall clock when ffmpeg reads them from ddagrab,
-    ///  - audio is a gap-free sample stream whose first sample is anchored at <paramref name="audioStartUnix"/>
-    ///    (same wall clock, via -itsoffset),
-    ///  - -copyts keeps both on that common clock; the fragmented MP4 muxer then shifts both by the same amount.
+    /// Full recorder command line. Timing model (one common timeline that starts at the first audio sample):
+    ///  - audio is a gap-free PCM stream on stdin. Since FFmpeg 7 timestamps of raw PCM input are ignored and
+    ///    audio always starts at 0, so audio sample n has the time n / 48000,
+    ///  - video packets are stamped with the wall clock when ffmpeg reads them from ddagrab and shifted by
+    ///    -<paramref name="audioStartUnix"/> (the wall-clock time of the first audio sample) via -itsoffset,
+    ///  - -copyts keeps both on that timeline; the fragmented MP4 muxer then shifts both by the same amount.
+    /// Putting the offset on the audio input instead stalls FFmpeg 7+: audio would sit at 0 while video
+    /// is at ~1.8e9 s, and FFmpeg's scheduler holds the video back until audio "catches up".
     /// Output is fragmented MP4 (one fragment per keyframe) on stdout, which the app keeps in RAM.
     /// </summary>
     public static List<string> BuildRecordArgs(PipelineSpec p, MonitorInfo mon, AppSettings s, double? audioStartUnix)
@@ -291,13 +294,14 @@ public static class PipelineBuilder
         // Info level + periodic stats show in the log how far ffmpeg got (inputs opened, output started, frames encoded).
         var a = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "info", "-stats", "-stats_period", "5" };
         a.AddRange(p.GlobalArgs);
+        if (audio)
+            a.AddRange(new[] { "-itsoffset", (-audioStartUnix!.Value).ToString("F6", CultureInfo.InvariantCulture) });
         a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", Ddagrab(mon.Index, s.Fps, s.CaptureCursor) });
 
         if (audio)
         {
             a.AddRange(new[]
             {
-                "-itsoffset", audioStartUnix!.Value.ToString("F6", CultureInfo.InvariantCulture),
                 "-thread_queue_size", "4096",
                 "-f", "f32le", "-ar", AudioSampleRate.ToString(CultureInfo.InvariantCulture), "-ch_layout", "stereo",
                 "-i", "pipe:0",

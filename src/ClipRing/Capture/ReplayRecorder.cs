@@ -95,12 +95,13 @@ public sealed class ReplayRecorder : IDisposable
                 line = line.Trim();
                 if (line.Length == 0) continue;
 
-                // Progress lines ("frame=  600 fps=120 ... size= ... time=...") come every few seconds.
-                // Log them while waiting for the first data and then only every 5 minutes.
+                // Progress lines ("frame=  600 fps=120 ... speed=1x") come every 5 s. Log them while waiting
+                // for data, for the first 30 s (shows whether the encoder keeps up) and then every 5 minutes.
                 if (line.StartsWith("frame=", StringComparison.Ordinal) || line.StartsWith("size=", StringComparison.Ordinal))
                 {
                     _lastStats = line;
-                    if (!HasProducedData || ++_statsLines % 60 == 0) Log.Info("ffmpeg-Status: " + line);
+                    _statsLines++;
+                    if (!HasProducedData || _statsLines <= 6 || _statsLines % 60 == 0) Log.Info("ffmpeg-Status: " + line);
                     continue;
                 }
 
