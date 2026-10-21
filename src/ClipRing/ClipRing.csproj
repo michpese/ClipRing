@@ -18,8 +18,9 @@
     <Product>ClipRing</Product>
     <Description>Instant-Replay-Rekorder mit RAM-Puffer</Description>
     <SatelliteResourceLanguages>de;en</SatelliteResourceLanguages>
-    <!-- WPF0001: ThemeMode (Fluent theme) is still flagged experimental. CA1416: Windows-only APIs. -->
-    <NoWarn>$(NoWarn);WPF0001;CA1416</NoWarn>
+    <!-- WPF0001: ThemeMode (Fluent theme) is still flagged experimental. CA1416: Windows-only APIs.
+         WFO0003: WinForms analyzer wants DPI mode set in code; this is a WPF app, which uses the manifest. -->
+    <NoWarn>$(NoWarn);WPF0001;CA1416;WFO0003</NoWarn>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     <TieredPGO>true</TieredPGO>
