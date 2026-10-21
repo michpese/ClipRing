@@ -71,22 +71,61 @@ internal static class Win32
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
     public static extern bool GetMonitorInfoEx(IntPtr hMonitor, ref MONITORINFOEX info);
 
+    public const int ENUM_CURRENT_SETTINGS = -1;
+
+    /// <summary>DEVMODEW (display variant of the unions), 220 bytes.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmDeviceName;
+        public ushort dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;
+        public uint dmFields;
+        public int dmPositionX, dmPositionY;
+        public uint dmDisplayOrientation, dmDisplayFixedOutput;
+        public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmFormName;
+        public ushort dmLogPixels;
+        public uint dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;
+        public uint dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplaySettingsW")]
+    public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE mode);
+
+    /// <summary>Current refresh rate of a display device in Hz, or 0 if unknown.</summary>
+    public static int GetRefreshRate(string deviceName)
+    {
+        try
+        {
+            var mode = new DEVMODE { dmDeviceName = "", dmFormName = "", dmSize = (ushort)Marshal.SizeOf<DEVMODE>() };
+            return EnumDisplaySettings(deviceName, ENUM_CURRENT_SETTINGS, ref mode) && mode.dmDisplayFrequency > 1
+                ? (int)mode.dmDisplayFrequency
+                : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     public delegate bool MonitorEnumProc(IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data);
 
     [DllImport("user32.dll")]
     public static extern bool EnumDisplayMonitors(IntPtr hdc, IntPtr clip, MonitorEnumProc callback, IntPtr data);
 
     /// <summary>Monitors in EnumDisplayMonitors order (the order FFmpeg's gfxcapture uses for monitor_idx).</summary>
-    public static List<(string Device, int Width, int Height, bool Primary)> EnumerateMonitors()
+    public static List<(string Device, int Width, int Height, bool Primary, int RefreshHz)> EnumerateMonitors()
     {
-        var list = new List<(string, int, int, bool)>();
+        var list = new List<(string, int, int, bool, int)>();
         MonitorEnumProc callback = (IntPtr hMonitor, IntPtr hdc, ref RECT rect, IntPtr data) =>
         {
             var info = new MONITORINFOEX { cbSize = Marshal.SizeOf<MONITORINFOEX>(), szDevice = "" };
             if (GetMonitorInfoEx(hMonitor, ref info))
             {
                 list.Add((info.szDevice, info.rcMonitor.Width, info.rcMonitor.Height,
-                          (info.dwFlags & MONITORINFOF_PRIMARY) != 0));
+                          (info.dwFlags & MONITORINFOF_PRIMARY) != 0, GetRefreshRate(info.szDevice)));
             }
             return true;
         };

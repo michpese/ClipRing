@@ -119,12 +119,53 @@ public static class PipelineBuilder
         => $"ddagrab=output_idx={outputIndex}:framerate={fps}:draw_mouse={(cursor ? 1 : 0)}";
 
     /// <summary>
-    /// Windows Graphics Capture: delivers a frame whenever the compositor has a new one (up to max_framerate).
+    /// Windows Graphics Capture: delivers a frame whenever the compositor has a new one.
     /// ddagrab paces itself with Sleep(), which Windows rounds to 15.6 ms for processes that don't raise the
     /// timer resolution (ffmpeg doesn't), so it tops out around 80 fps.
+    /// max_framerate becomes the session's MinUpdateInterval: Windows drops every frame that comes sooner than
+    /// that after the previous one. At exactly the target rate a frame that is a hair early is lost and the next
+    /// one comes a whole refresh later, which gave ~100 instead of 120 fps. So capture is allowed at twice the
+    /// target and <see cref="WgcPacing"/> thins it out to one frame per 1/fps slot.
     /// </summary>
     public static string Gfxcapture(int monitorIndex, int fps, bool cursor)
-        => $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={fps}:capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+        => $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={WgcCaptureRate(fps)}" +
+           $":capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+
+    public static int WgcCaptureRate(int fps) => Math.Clamp(fps * 2, 1, 1000);
+
+    /// <summary>
+    /// Keeps the first frame of every 1/fps slot (no duplicates: Graphics Capture sends nothing while the
+    /// screen stands still, and filling such gaps would flood the encoder once frames come again).
+    /// The slot index is round(t*fps), the same rounding FFmpeg applies when it puts the timestamps on the
+    /// 1/fps encoder time base, so kept frames never share a tick.
+    /// </summary>
+    public static string WgcPacing(int fps)
+    {
+        string f = fps.ToString(CultureInfo.InvariantCulture);
+        return $"select=round(t*{f})-round(prev_selected_t*{f})";
+    }
+
+    /// <summary>
+    /// Video filter chain including source-specific pacing. For Graphics Capture the declared frame rate
+    /// (twice the target, from max_framerate) is stripped at the end, so encoders take their rate-control
+    /// frame rate from the 1/fps time base; otherwise NVENC would plan for 240 frames and reach half the bitrate.
+    /// Stripped last because vpp_qsv and friends read the frame rate.
+    /// </summary>
+    public static string? VideoFilterChain(PipelineSpec p, int fps)
+    {
+        if (p.Source != VideoSource.Wgc) return p.VideoFilter;
+        var parts = new List<string> { WgcPacing(fps) };
+        if (!string.IsNullOrEmpty(p.VideoFilter)) parts.Add(p.VideoFilter);
+        parts.Add("setpts=strip_fps=1");
+        return string.Join(',', parts);
+    }
+
+    /// <summary>
+    /// Encoder time base. Desktop Duplication: fine-grained, so the exact capture times survive.
+    /// Graphics Capture: the 1/fps slot grid, which also tells the encoder the frame rate.
+    /// </summary>
+    public static string EncoderTimeBase(PipelineSpec p, int fps)
+        => p.Source == VideoSource.Wgc ? "1:" + fps.ToString(CultureInfo.InvariantCulture) : "1:90000";
 
     public static string SourceGraph(PipelineSpec p, MonitorInfo mon, int fps, bool cursor)
         => p.Source == VideoSource.Wgc ? Gfxcapture(mon.Index, fps, cursor) : Ddagrab(mon.DdaIndex, fps, cursor);
@@ -317,7 +358,7 @@ public static class PipelineBuilder
     /// Full recorder command line. Timing model (one common timeline that starts at the first audio sample):
     ///  - audio is a gap-free PCM stream on stdin. Since FFmpeg 7 timestamps of raw PCM input are ignored and
     ///    audio always starts at 0, so audio sample n has the time n / 48000,
-    ///  - video packets are stamped with the wall clock when ffmpeg reads them from ddagrab and shifted by
+    ///  - video packets are stamped with the wall clock when ffmpeg reads them from the capture source and shifted by
     ///    -<paramref name="audioStartUnix"/> (the wall-clock time of the first audio sample) via -itsoffset,
     ///  - -copyts keeps both on that timeline; the fragmented MP4 muxer then shifts both by the same amount.
     /// Putting the offset on the audio input instead stalls FFmpeg 7+: audio would sit at 0 while video
@@ -345,11 +386,12 @@ public static class PipelineBuilder
             });
         }
 
-        // VFR passthrough keeps the exact capture times (a CFR conversion shifts video by up to a frame);
-        // the fine encoder time base avoids two frames rounding onto the same tick.
-        a.AddRange(new[] { "-copyts", "-fps_mode", "passthrough", "-enc_time_base:v", "1:90000", "-map", "0:v" });
+        // VFR passthrough keeps the capture times (a CFR conversion would duplicate frames to fill every gap).
+        // See EncoderTimeBase and VideoFilterChain for how the time base differs per capture source.
+        a.AddRange(new[] { "-copyts", "-fps_mode", "passthrough", "-enc_time_base:v", EncoderTimeBase(p, s.Fps), "-map", "0:v" });
         if (audio) a.AddRange(new[] { "-map", "1:a" });
-        if (!string.IsNullOrEmpty(p.VideoFilter)) a.AddRange(new[] { "-vf", p.VideoFilter });
+        var vf = VideoFilterChain(p, s.Fps);
+        if (!string.IsNullOrEmpty(vf)) a.AddRange(new[] { "-vf", vf });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);
         if (audio) a.AddRange(new[] { "-c:a", "aac", "-b:a", $"{s.AudioBitrateKbps}k" });
@@ -373,7 +415,10 @@ public static class PipelineBuilder
         // Graphics Capture only delivers frames when the screen changes; one frame is enough to validate the path.
         string frames = p.Source == VideoSource.Wgc ? "1" : "15";
         a.AddRange(new[] { "-f", "lavfi", "-i", SourceGraph(p, mon, s.Fps, false), "-frames:v", frames });
-        if (!string.IsNullOrEmpty(p.VideoFilter)) a.AddRange(new[] { "-vf", p.VideoFilter });
+        // Same chain and time base as the recording, so the test covers them too.
+        if (p.Source == VideoSource.Wgc) a.AddRange(new[] { "-enc_time_base:v", EncoderTimeBase(p, s.Fps) });
+        var vf = VideoFilterChain(p, s.Fps);
+        if (!string.IsNullOrEmpty(vf)) a.AddRange(new[] { "-vf", vf });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);
         a.AddRange(new[] { "-f", "null", "-" });

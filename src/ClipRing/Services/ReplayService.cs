@@ -489,14 +489,18 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (wgc && _games.Current is null) return;
 
         _slowEncoderWarnedFor = recorder;
-        string message = wgc
+        int hz = SelectedMonitor?.RefreshHz ?? 0;
+        string message = wgc && hz > 0 && hz < Settings.Fps * 0.95
+            ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an: der Monitor läuft mit {hz} Hz, und mehr Bilder " +
+              "liefert Windows Graphics Capture nicht. In den Windows-Anzeigeeinstellungen die Bildwiederholrate erhöhen oder weniger fps wählen."
+            : wgc
             ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an. Entweder läuft das Spiel selbst langsamer, " +
               "oder die Grafikkarte kommt nicht mit: dann Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung wählen. " +
               "Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder."
             : $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an, Clips ruckeln dadurch. " +
               "Unter „Video“ als Aufnahmemethode „Windows Graphics Capture“ wählen, sonst Encoder-Tempo „Schnell“ oder weniger fps.";
         Log.Warn($"Zu wenige Bilder: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {_pipeline?.SourceLabel}, " +
-                 $"{Settings.Speed}, {_pipeline?.OutWidth}x{_pipeline?.OutHeight})");
+                 $"{Settings.Speed}, {_pipeline?.OutWidth}x{_pipeline?.OutHeight}, Monitor {(hz > 0 ? $"{hz} Hz" : "Hz unbekannt")})");
         StatusText = message;
         Notify?.Invoke("Aufnahme ruckelt", $"Nur {fps:0} von {Settings.Fps} fps. Details auf der Übersicht.");
     }

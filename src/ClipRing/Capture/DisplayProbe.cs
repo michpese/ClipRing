@@ -8,9 +8,13 @@ namespace ClipRing.Capture;
 /// <param name="Index">Position in EnumDisplayMonitors order; this is gfxcapture's monitor_idx.</param>
 /// <param name="DeviceName">Windows device name such as \\.\DISPLAY1, stable across restarts.</param>
 /// <param name="DdaIndex">Matching ddagrab output_idx (Desktop Duplication order), or -1 if none.</param>
-public sealed record MonitorInfo(int Index, int Width, int Height, string DeviceName, bool IsPrimary, int DdaIndex)
+/// <param name="RefreshHz">Current refresh rate, 0 if unknown. Graphics Capture can't deliver more frames than this.</param>
+public sealed record MonitorInfo(int Index, int Width, int Height, string DeviceName, bool IsPrimary, int DdaIndex,
+                                 int RefreshHz = 0)
 {
-    public string Label => $"Monitor {Index + 1}: {Width} × {Height}{(IsPrimary ? ", Hauptbildschirm" : "")}";
+    public string Label => $"Monitor {Index + 1}: {Width} × {Height}" +
+                           (RefreshHz > 0 ? $", {RefreshHz} Hz" : "") +
+                           (IsPrimary ? ", Hauptbildschirm" : "");
 }
 
 /// <summary>
@@ -59,7 +63,7 @@ public static partial class DisplayProbe
         for (int i = 0; i < windows.Count; i++)
         {
             var w = windows[i];
-            result.Add(new MonitorInfo(i, w.Width, w.Height, w.Device, w.Primary, ddaIndex[i]));
+            result.Add(new MonitorInfo(i, w.Width, w.Height, w.Device, w.Primary, ddaIndex[i], w.RefreshHz));
         }
 
         Log.Info("Monitore: " + string.Join("; ", result.Select(m =>
