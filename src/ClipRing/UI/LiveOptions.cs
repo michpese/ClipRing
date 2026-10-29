@@ -16,6 +16,10 @@ public sealed class LiveOption<T> : ObservableObject
 
     private string _label;
     public string Label { get => _label; set => Set(ref _label, value); }
+
+    /// <summary>False for options this PC cannot use (shown greyed out, not selectable).</summary>
+    private bool _isEnabled = true;
+    public bool IsEnabled { get => _isEnabled; set => Set(ref _isEnabled, value); }
 }
 
 /// <summary>

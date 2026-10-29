@@ -11,7 +11,7 @@ public static class AudioDevices
     {
         var list = new List<AudioDeviceOption>
         {
-            new("", flow == DataFlow.Render ? "Windows-Standardausgabe" : "Windows-Standardmikrofon"),
+            new("", Localization.Loc.T(flow == DataFlow.Render ? "Audio_DefaultOutput" : "Audio_DefaultInput")),
         };
         try
         {

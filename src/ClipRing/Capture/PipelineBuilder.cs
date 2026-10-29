@@ -1,5 +1,6 @@
 using System.Globalization;
 using ClipRing.Core;
+using ClipRing.Localization;
 
 namespace ClipRing.Capture;
 
@@ -18,8 +19,11 @@ public sealed record PipelineSpec
     public required int OutWidth { get; init; }
     public required int OutHeight { get; init; }
     public required int BitrateKbps { get; init; }
-    public required string PathLabel { get; init; }
+    /// <summary>Localization key describing the frame path (e.g. Path_GpuDirect).</summary>
+    public required string PathKey { get; init; }
     public bool FromCache { get; init; }
+
+    public string PathLabel => Loc.T(PathKey);
 
     public string EncoderLabel => $"{PipelineBuilder.BackendName(Backend)} ({PipelineBuilder.CodecName(Codec)})";
     public string SourceLabel => Source == VideoSource.Wgc ? "Windows Graphics Capture" : "Desktop Duplication";
@@ -39,9 +43,9 @@ public static class PipelineBuilder
         EncoderBackend.Nvenc => "NVIDIA NVENC",
         EncoderBackend.Amf => "AMD AMF",
         EncoderBackend.Qsv => "Intel Quick Sync",
-        EncoderBackend.D3D12 => "Direct3D 12 (herstellerunabhängig)",
-        EncoderBackend.Software => "Software (CPU)",
-        _ => "Automatisch",
+        EncoderBackend.D3D12 => Loc.T("Backend_D3D12"),
+        EncoderBackend.Software => Loc.T("Backend_Software"),
+        _ => Loc.T("Opt_Automatic"),
     };
 
     public static string CodecName(VideoCodec codec) => codec switch
@@ -233,7 +237,7 @@ public static class PipelineBuilder
         string[] bt709 = { "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv" };
 
         string prefix = source == VideoSource.Wgc ? "wgc/" : "dda/";
-        PipelineSpec Make(string id, string? filter, string pathLabel, IReadOnlyList<string>? color = null,
+        PipelineSpec Make(string id, string? filter, string pathKey, IReadOnlyList<string>? color = null,
                           IReadOnlyList<string>? global = null) => new()
         {
             Id = prefix + id,
@@ -248,25 +252,25 @@ public static class PipelineBuilder
             OutWidth = ow,
             OutHeight = oh,
             BitrateKbps = kbps,
-            PathLabel = pathLabel,
+            PathKey = pathKey,
         };
 
         switch (backend)
         {
             case EncoderBackend.Nvenc:
-                if (!scale) yield return Make("nvenc/direct", null, "GPU, ohne Kopie");
+                if (!scale) yield return Make("nvenc/direct", null, "Path_GpuDirect");
                 if (scale && ff.HasFilter("scale_d3d11"))
-                    yield return Make("nvenc/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "GPU-Skalierung");
-                yield return Make("nvenc/cpu", cpuChain("nv12"), "CPU-Konvertierung", bt709);
+                    yield return Make("nvenc/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "Path_GpuScale");
+                yield return Make("nvenc/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;
 
             case EncoderBackend.Amf:
-                if (!scale) yield return Make("amf/direct", null, "GPU, ohne Kopie");
+                if (!scale) yield return Make("amf/direct", null, "Path_GpuDirect");
                 if (scale && ff.HasFilter("vpp_amf"))
-                    yield return Make("amf/vpp_amf", $"vpp_amf=w={ow}:h={oh}:format=nv12", "GPU-Skalierung (AMF)");
+                    yield return Make("amf/vpp_amf", $"vpp_amf=w={ow}:h={oh}:format=nv12", "Path_GpuScaleAmf");
                 if (scale && ff.HasFilter("scale_d3d11"))
-                    yield return Make("amf/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "GPU-Skalierung");
-                yield return Make("amf/cpu", cpuChain("nv12"), "CPU-Konvertierung", bt709);
+                    yield return Make("amf/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "Path_GpuScale");
+                yield return Make("amf/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;
 
             case EncoderBackend.Qsv:
@@ -274,18 +278,18 @@ public static class PipelineBuilder
                 {
                     string size = scale ? $":w={ow}:h={oh}" : "";
                     yield return Make("qsv/vpp_qsv", $"hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12{size}",
-                                      scale ? "GPU-Skalierung (QSV)" : "GPU, ohne Kopie");
+                                      scale ? "Path_GpuScaleQsv" : "Path_GpuDirect");
                 }
-                yield return Make("qsv/cpu", cpuChain("nv12"), "CPU-Konvertierung", bt709);
+                yield return Make("qsv/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;
 
             case EncoderBackend.D3D12:
-                yield return Make("d3d12/cpu", cpuChain("nv12") + ",hwupload", "CPU-Konvertierung", bt709,
+                yield return Make("d3d12/cpu", cpuChain("nv12") + ",hwupload", "Path_CpuConvert", bt709,
                                   new[] { "-init_hw_device", "d3d12va=dx12", "-filter_hw_device", "dx12" });
                 break;
 
             case EncoderBackend.Software:
-                yield return Make("sw/cpu", cpuChain("yuv420p"), "CPU", bt709);
+                yield return Make("sw/cpu", cpuChain("yuv420p"), "Path_Cpu", bt709);
                 break;
         }
     }

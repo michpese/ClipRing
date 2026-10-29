@@ -1,4 +1,5 @@
 using ClipRing.Core;
+using ClipRing.Localization;
 
 namespace ClipRing.Capture;
 
@@ -16,13 +17,16 @@ public static class PipelineSelector
                $"{s.Fps}|{s.Codec}|{s.Encoder}|{s.CaptureMethod}";
     }
 
-    public static async Task<PipelineSpec?> SelectAsync(FfmpegInfo ff, AppSettings s, MonitorInfo mon,
+    /// <param name="caps">Encoders this PC supports: others are not even tried.</param>
+    public static async Task<PipelineSpec?> SelectAsync(FfmpegInfo ff, AppSettings s, MonitorInfo mon, EncoderCapabilities caps,
                                                         Action<string>? progress, CancellationToken ct)
     {
         string key = CacheKey(ff, s, mon);
-        var order = s.Encoder == EncoderBackend.Auto
-            ? PipelineBuilder.AutoOrder
-            : new[] { s.Encoder }.Concat(PipelineBuilder.AutoOrder.Where(b => b != s.Encoder)).ToArray();
+        var order = (s.Encoder == EncoderBackend.Auto
+                ? PipelineBuilder.AutoOrder
+                : new[] { s.Encoder }.Concat(PipelineBuilder.AutoOrder.Where(b => b != s.Encoder)).ToArray())
+            .Where(b => caps.Usable(b, s.Codec))
+            .ToArray();
 
         var sources = PipelineBuilder.Sources(ff, s, mon);
         if (sources.Count == 0)
@@ -51,7 +55,7 @@ public static class PipelineSelector
             foreach (var candidate in PipelineBuilder.Candidates(ff, s, mon, backend, source))
             {
                 ct.ThrowIfCancellationRequested();
-                progress?.Invoke($"Teste {candidate.EncoderLabel}, {candidate.PathLabel}, {candidate.SourceLabel} …");
+                progress?.Invoke(Loc.F("Status_Testing", candidate.EncoderLabel, candidate.PathLabel, candidate.SourceLabel));
                 var args = PipelineBuilder.BuildTestArgs(candidate, mon, s);
                 var result = await ProcessRunner.RunAsync(ff.Path, args, TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
                 if (result.Success)
@@ -73,14 +77,5 @@ public static class PipelineSelector
     {
         s.PipelineCacheKey = "";
         s.PipelineCacheId = "";
-    }
-
-    /// <summary>Which backends are present in this ffmpeg build for the given codec.</summary>
-    public static Dictionary<EncoderBackend, bool> Availability(FfmpegInfo? ff, VideoCodec codec)
-    {
-        var map = new Dictionary<EncoderBackend, bool>();
-        foreach (var backend in PipelineBuilder.AutoOrder)
-            map[backend] = ff is not null && ff.HasEncoder(PipelineBuilder.EncoderName(backend, codec));
-        return map;
     }
 }

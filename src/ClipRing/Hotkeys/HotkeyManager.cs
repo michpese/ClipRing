@@ -1,6 +1,7 @@
 using System.Windows.Input;
 using System.Windows.Interop;
 using ClipRing.Core;
+using ClipRing.Localization;
 using ClipRing.Native;
 
 namespace ClipRing.Hotkeys;
@@ -15,25 +16,43 @@ public enum HotkeyModifiers : uint
     Win = Win32.MOD_WIN,
 }
 
+/// <remarks>
+/// Stored language-neutral ("Ctrl+Alt+F10"); <see cref="Display()"/> shows it in the UI language
+/// ("Strg+Alt+F10" in German). Parsing accepts both, so older settings keep working.
+/// </remarks>
 public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
 {
-    public override string ToString()
+    /// <summary>Canonical text for settings.json.</summary>
+    public override string ToString() => Format(german: false, canonical: true);
+
+    /// <summary>Text for the UI in the current language.</summary>
+    public string Display() => Format(german: Loc.Instance.Language == "de", canonical: false);
+
+    private string Format(bool german, bool canonical)
     {
         var parts = new List<string>();
-        if (Modifiers.HasFlag(HotkeyModifiers.Control)) parts.Add("Strg");
+        if (Modifiers.HasFlag(HotkeyModifiers.Control)) parts.Add(german ? "Strg" : "Ctrl");
         if (Modifiers.HasFlag(HotkeyModifiers.Alt)) parts.Add("Alt");
         if (Modifiers.HasFlag(HotkeyModifiers.Shift)) parts.Add("Shift");
         if (Modifiers.HasFlag(HotkeyModifiers.Win)) parts.Add("Win");
-        parts.Add(KeyName(Key));
+        parts.Add(canonical ? CanonicalKeyName(Key) : german ? GermanKeyName(Key) : EnglishKeyName(Key));
         return string.Join("+", parts);
     }
 
-    public static string KeyName(Key key) => key switch
+    private static string CanonicalKeyName(Key key) => key switch
     {
         >= Key.D0 and <= Key.D9 => ((char)('0' + (key - Key.D0))).ToString(),
         >= Key.NumPad0 and <= Key.NumPad9 => "Num" + (key - Key.NumPad0),
+        Key.Snapshot => "PrintScreen",
+        Key.Scroll => "ScrollLock",
+        Key.PageUp => "PageUp",
+        Key.PageDown => "PageDown",
+        _ => key.ToString(),
+    };
+
+    private static string GermanKeyName(Key key) => key switch
+    {
         Key.Snapshot => "Druck",
-        Key.Pause => "Pause",
         Key.Scroll => "Rollen",
         Key.Insert => "Einfg",
         Key.Delete => "Entf",
@@ -41,7 +60,18 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
         Key.End => "Ende",
         Key.PageUp => "BildAuf",
         Key.PageDown => "BildAb",
-        _ => key.ToString(),
+        _ => CanonicalKeyName(key),
+    };
+
+    private static string EnglishKeyName(Key key) => key switch
+    {
+        Key.Snapshot => "PrtSc",
+        Key.Scroll => "ScrLk",
+        Key.Insert => "Ins",
+        Key.Delete => "Del",
+        Key.PageUp => "PgUp",
+        Key.PageDown => "PgDn",
+        _ => CanonicalKeyName(key),
     };
 
     private static Key ParseKey(string text)
@@ -51,14 +81,14 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
             return Key.NumPad0 + (text[3] - '0');
         return text.ToLowerInvariant() switch
         {
-            "druck" => Key.Snapshot,
-            "rollen" => Key.Scroll,
-            "einfg" => Key.Insert,
-            "entf" => Key.Delete,
+            "druck" or "prtsc" or "printscreen" => Key.Snapshot,
+            "rollen" or "scrlk" or "scrolllock" => Key.Scroll,
+            "einfg" or "ins" => Key.Insert,
+            "entf" or "del" => Key.Delete,
             "pos1" => Key.Home,
             "ende" => Key.End,
-            "bildauf" => Key.PageUp,
-            "bildab" => Key.PageDown,
+            "bildauf" or "pgup" => Key.PageUp,
+            "bildab" or "pgdn" => Key.PageDown,
             _ => Enum.TryParse<Key>(text, ignoreCase: true, out var k) ? k : Key.None,
         };
     }
@@ -81,6 +111,13 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
         }
         return key == Key.None ? null : new HotkeyBinding(mods, key);
     }
+
+    /// <summary>Settings value → canonical form (unparseable values stay as they are).</summary>
+    public static string Normalize(string? text) => Parse(text)?.ToString() ?? text ?? "";
+
+    /// <summary>Settings value → UI text in the current language.</summary>
+    public static string DisplayText(string? text)
+        => string.IsNullOrWhiteSpace(text) ? Loc.T("Hotkey_None") : Parse(text)?.Display() ?? text;
 }
 
 /// <summary>
@@ -119,7 +156,7 @@ public sealed class HotkeyManager : IDisposable
         var entry = new Entry(_nextId++, binding.Value, callback);
         _entries[name] = entry;
         if (_suspended) return null;
-        return RegisterNative(entry) ? null : $"{binding} ist von einem anderen Programm belegt.";
+        return RegisterNative(entry) ? null : Loc.F("Hotkey_Taken", binding.Value.Display());
     }
 
     public void Unregister(string name)

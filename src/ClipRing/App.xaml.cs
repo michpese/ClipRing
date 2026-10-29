@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Threading;
 using ClipRing.Core;
 using ClipRing.Hotkeys;
+using ClipRing.Localization;
 using ClipRing.Services;
 using ClipRing.UI;
 
@@ -24,12 +25,80 @@ public partial class App : Application
 
     public static bool IsExiting { get; private set; }
 
+    private sealed class CollectingTraceListener : System.Diagnostics.TraceListener
+    {
+        public List<string> Messages { get; } = new();
+        public override void Write(string? message) { }
+        public override void WriteLine(string? message) { if (message is not null) Messages.Add(message); }
+    }
+
+    private async Task<int> RunUiSelfTestAsync(string reportPath)
+    {
+        var lines = new List<string>();
+        int code = 1;
+        var listener = new CollectingTraceListener();
+        try
+        {
+            System.Diagnostics.PresentationTraceSources.Refresh();
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Listeners.Add(listener);
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level = System.Diagnostics.SourceLevels.Error;
+
+            var settings = new AppSettings();
+            var service = new ReplayService(settings, Dispatcher);
+            var viewModel = new MainViewModel(service);
+            var window = new MainWindow
+            {
+                DataContext = viewModel,
+                ShowActivated = false,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = -30000,
+                Top = -30000,
+            };
+            window.Show();
+            foreach (var language in new[] { "de", "en", "de" })
+            {
+                settings.Language = language; // live switch through the settings, like the user does it
+                for (int page = 0; page < 8; page++)
+                {
+                    viewModel.SelectedPage = page;
+                    window.UpdateLayout();
+                    await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
+                }
+                lines.Add($"language={Loc.Instance.Language}: ok");
+            }
+            window.Close();
+
+            foreach (var language in new[] { "de", "en" })
+            {
+                var table = Loc.Table(language);
+                lines.Add($"{language}.json={table.Count} keys");
+            }
+            var onlyDe = Loc.Table("de").Keys.Except(Loc.Table("en").Keys).ToList();
+            var onlyEn = Loc.Table("en").Keys.Except(Loc.Table("de").Keys).ToList();
+            if (onlyDe.Count > 0) lines.Add("only in de.json: " + string.Join(" ", onlyDe));
+            if (onlyEn.Count > 0) lines.Add("only in en.json: " + string.Join(" ", onlyEn));
+            lines.Add("missing=" + (Loc.Missing.IsEmpty ? "none" : string.Join(" ", Loc.Missing.Keys.OrderBy(k => k))));
+            lines.Add($"bindingErrors={listener.Messages.Count}");
+            lines.AddRange(listener.Messages.Distinct().Take(8).Select(m => "binding: " + m));
+            if (Loc.Missing.IsEmpty && onlyDe.Count == 0 && onlyEn.Count == 0) code = 0;
+        }
+        catch (Exception ex)
+        {
+            lines.Add("error=" + ex.ToString().ReplaceLineEndings(" | "));
+        }
+        lines.Add($"result={(code == 0 ? "ok" : "failed")}");
+        try { File.WriteAllLines(reportPath, lines); } catch { /* exit code still tells */ }
+        return code;
+    }
+
     private static async Task<int> RunFfmpegSelfTestAsync(string reportPath)
     {
         var lines = new List<string>();
         int code = 1;
         try
         {
+            AppPaths.EnsureCreated();
             lines.Add($"embedded={Capture.EmbeddedFfmpeg.IsAvailable}");
             lines.Add($"embeddedVersion={Capture.EmbeddedFfmpeg.Version ?? "-"}");
             var path = await Capture.EmbeddedFfmpeg.EnsureExtractedAsync();
@@ -45,6 +114,12 @@ public partial class App : Application
                 lines.Add($"gfxcapture={info?.HasFilter("gfxcapture") ?? false}");
                 lines.Add($"ddagrab={info?.HasFilter("ddagrab") ?? false}");
                 lines.Add($"av1_nvenc={info?.HasEncoder("av1_nvenc") ?? false}");
+                if (info is not null)
+                {
+                    // No GPU on the build machine: every hardware test must fail cleanly, not hang or crash.
+                    var caps = await Capture.EncoderProbe.GetAsync(info, force: true);
+                    lines.Add("hardware=" + caps.Describe().Replace("\n", "; "));
+                }
                 if (info is not null && again == path && (info.HasFilter("gfxcapture") || info.HasFilter("ddagrab"))) code = 0;
             }
         }
@@ -68,6 +143,19 @@ public partial class App : Application
                 ? e.Args[selfTest + 1]
                 : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cliprings-selftest.txt");
             Shutdown(Task.Run(() => RunFfmpegSelfTestAsync(report)).GetAwaiter().GetResult());
+            return;
+        }
+
+        // Build check (CI): open the window in German and English, visit every page, switch the language
+        // live, and report missing texts and binding errors.
+        int uiTest = Array.IndexOf(e.Args, "--selftest-ui");
+        if (uiTest >= 0)
+        {
+            IsExiting = true;
+            string report = uiTest + 1 < e.Args.Length
+                ? e.Args[uiTest + 1]
+                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cliprings-selftest-ui.txt");
+            Dispatcher.BeginInvoke(new Action(async () => Shutdown(await RunUiSelfTestAsync(report))));
             return;
         }
 
@@ -104,6 +192,7 @@ public partial class App : Application
         };
 
         var settings = _settings = SettingsStore.Load();
+        Loc.Instance.Apply(settings.Language);
         var service = _service = new ReplayService(settings, Dispatcher);
         var viewModel = _viewModel = new MainViewModel(service);
 
@@ -130,6 +219,11 @@ public partial class App : Application
         {
             if (args.PropertyName == nameof(ReplayService.StateTitle))
                 Dispatcher.BeginInvoke(new Action(() => _tray?.SetText("ClipRing: " + service.StateTitle)));
+        };
+        Loc.LanguageChanged += () =>
+        {
+            _tray?.ApplyTexts();
+            RegisterHotkeys(); // error texts in the new language
         };
 
         _window = new MainWindow { DataContext = viewModel };
@@ -174,7 +268,7 @@ public partial class App : Application
                     get() == legacy.Old)
                 {
                     set(legacy.New);
-                    migrated.Add($"{legacy.Old} → {legacy.New}");
+                    migrated.Add($"{HotkeyBinding.DisplayText(legacy.Old)} → {HotkeyBinding.DisplayText(legacy.New)}");
                     error = hotkeys.Register(name, get(), action);
                 }
                 if (error is not null) errors.Add(error);
@@ -194,14 +288,12 @@ public partial class App : Application
 
         _viewModel.HotkeyErrors = errors.Count == 0
             ? ""
-            : string.Join(Environment.NewLine, errors) + Environment.NewLine +
-              "Bitte unter „Hotkeys“ eine andere Kombination wählen. Alt+F9 und Alt+F10 belegt zum Beispiel die NVIDIA App.";
+            : string.Join(Environment.NewLine, errors) + Environment.NewLine + Loc.T("Hotkey_ChooseOther");
 
         if (migrated.Count > 0)
         {
             Log.Info("Hotkeys umgestellt, weil die alten belegt sind: " + string.Join(", ", migrated));
-            _tray?.ShowBalloon("Hotkeys geändert",
-                "Die bisherigen Tasten sind von einem anderen Programm belegt (z. B. NVIDIA App). Neu: " + string.Join(", ", migrated));
+            _tray?.ShowBalloon(Loc.T("Notify_HotkeysChangedTitle"), Loc.F("Notify_HotkeysChanged", string.Join(", ", migrated)));
         }
     }
 

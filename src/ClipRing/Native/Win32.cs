@@ -74,6 +74,41 @@ internal static class Win32
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetMonitorInfoW")]
     public static extern bool GetMonitorInfoEx(IntPtr hMonitor, ref MONITORINFOEX info);
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct DISPLAY_DEVICE
+    {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceString;
+        public uint StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+        public string DeviceKey;
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplayDevicesW")]
+    public static extern bool EnumDisplayDevices(string? device, uint devNum, ref DISPLAY_DEVICE displayDevice, uint flags);
+
+    /// <summary>Names of the graphics adapters ("NVIDIA GeForce RTX 4090"), each once.</summary>
+    public static List<string> DisplayAdapters()
+    {
+        var names = new List<string>();
+        try
+        {
+            for (uint i = 0; i < 32; i++)
+            {
+                var dd = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>(), DeviceName = "", DeviceString = "", DeviceID = "", DeviceKey = "" };
+                if (!EnumDisplayDevices(null, i, ref dd, 0)) break;
+                if (!string.IsNullOrWhiteSpace(dd.DeviceString) && !names.Contains(dd.DeviceString)) names.Add(dd.DeviceString);
+            }
+        }
+        catch { /* not important */ }
+        return names;
+    }
+
     public const int ENUM_CURRENT_SETTINGS = -1;
 
     /// <summary>DEVMODEW (display variant of the unions), 220 bytes.</summary>

@@ -5,6 +5,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using ClipRing.Hotkeys;
+using ClipRing.Localization;
 
 namespace ClipRing.UI;
 
@@ -46,19 +47,20 @@ public class HotkeyBox : TextBox
         Cursor = Cursors.Hand;
         MinWidth = 190;
         ShowCurrent();
+        Loc.LanguageChanged += ShowCurrent;
     }
 
     public string Hotkey { get => (string)GetValue(HotkeyProperty); set => SetValue(HotkeyProperty, value); }
 
     private void ShowCurrent()
     {
-        if (!IsKeyboardFocused) Text = string.IsNullOrWhiteSpace(Hotkey) ? "Nicht belegt" : Hotkey;
+        if (!IsKeyboardFocused) Text = HotkeyBinding.DisplayText(Hotkey);
     }
 
     protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e)
     {
         base.OnGotKeyboardFocus(e);
-        Text = "Tastenkombination drücken …";
+        Text = Loc.T("Hotkey_Press");
         CaptureStarted?.Invoke();
     }
 
@@ -97,7 +99,7 @@ public class HotkeyBox : TextBox
         bool standalone = key is >= Key.F1 and <= Key.F24 or Key.Pause or Key.Scroll or Key.Snapshot or Key.Insert;
         if (mods == HotkeyModifiers.None && !standalone)
         {
-            Text = "Bitte mit Strg, Alt oder Umschalt kombinieren";
+            Text = Loc.T("Hotkey_NeedModifier");
             return;
         }
 
@@ -126,6 +128,8 @@ public class BufferTape : FrameworkElement
 
     private static readonly DependencyProperty FlashLevelProperty = DependencyProperty.Register(
         "FlashLevel", typeof(double), typeof(BufferTape), new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    public BufferTape() => Loc.LanguageChanged += InvalidateVisual;
 
     public double Fill { get => (double)GetValue(FillProperty); set => SetValue(FillProperty, value); }
     public double TotalSeconds { get => (double)GetValue(TotalSecondsProperty); set => SetValue(TotalSecondsProperty, value); }
@@ -189,7 +193,7 @@ public class BufferTape : FrameworkElement
         var typeface = new Typeface(new FontFamily("Bahnschrift, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
         for (double t = 0; t <= total + 0.001; t += major)
         {
-            string text = t == 0 ? "jetzt" : "-" + TimeSpan.FromSeconds(t).ToString(t >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
+            string text = t == 0 ? Loc.T("Tape_Now") : "-" + TimeSpan.FromSeconds(t).ToString(t >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
             var ft = new FormattedText(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, 11, labelBrush, dpi);
             double x = w - t / total * w;
             x = t == 0 ? x - ft.Width : Math.Max(0, x - ft.Width / 2);

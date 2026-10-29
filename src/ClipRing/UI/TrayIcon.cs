@@ -1,6 +1,7 @@
 using System.Drawing;
 using System.Windows.Forms;
 using ClipRing.Core;
+using ClipRing.Localization;
 
 namespace ClipRing.UI;
 
@@ -8,19 +9,27 @@ namespace ClipRing.UI;
 public sealed class TrayIcon : IDisposable
 {
     private readonly NotifyIcon _icon;
+    private readonly ToolStripMenuItem _open, _save, _pause, _folder, _exit;
+    private readonly Func<bool> _isPaused;
 
     public TrayIcon(Action open, Action saveClip, Action togglePause, Action openFolder, Action exit, Func<bool> isPaused)
     {
+        _isPaused = isPaused;
         var menu = new ContextMenuStrip();
-        menu.Items.Add("Öffnen", null, (_, _) => open());
-        menu.Items.Add("Clip speichern", null, (_, _) => saveClip());
-        var pause = new ToolStripMenuItem("Replay pausieren", null, (_, _) => togglePause());
-        menu.Items.Add(pause);
+        _open = new ToolStripMenuItem("", null, (_, _) => open());
+        _save = new ToolStripMenuItem("", null, (_, _) => saveClip());
+        _pause = new ToolStripMenuItem("", null, (_, _) => togglePause());
+        _folder = new ToolStripMenuItem("", null, (_, _) => openFolder());
+        _exit = new ToolStripMenuItem("", null, (_, _) => exit());
+        menu.Items.Add(_open);
+        menu.Items.Add(_save);
+        menu.Items.Add(_pause);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Clip-Ordner öffnen", null, (_, _) => openFolder());
+        menu.Items.Add(_folder);
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Beenden", null, (_, _) => exit());
-        menu.Opening += (_, _) => pause.Text = isPaused() ? "Replay fortsetzen" : "Replay pausieren";
+        menu.Items.Add(_exit);
+        menu.Opening += (_, _) => ApplyTexts();
+        ApplyTexts();
 
         _icon = new NotifyIcon
         {
@@ -47,6 +56,16 @@ public sealed class TrayIcon : IDisposable
             Log.Warn("Programmsymbol nicht ladbar: " + ex.Message);
         }
         return SystemIcons.Application;
+    }
+
+    /// <summary>Menu texts in the current UI language.</summary>
+    public void ApplyTexts()
+    {
+        _open.Text = Loc.T("Btn_Open");
+        _save.Text = Loc.T("Btn_SaveClip");
+        _pause.Text = Loc.T(_isPaused() ? "Btn_ResumeReplay" : "Btn_PauseReplay");
+        _folder.Text = Loc.T("Btn_OpenClipFolder");
+        _exit.Text = Loc.T("Btn_Exit");
     }
 
     public void ShowBalloon(string title, string text)

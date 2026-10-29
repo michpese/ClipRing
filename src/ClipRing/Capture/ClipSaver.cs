@@ -22,8 +22,8 @@ public sealed record SavedClip(string FilePath, string Game, double DurationSeco
         ? $"{SizeBytes / (1024.0 * 1024 * 1024):0.0} GB"
         : $"{SizeBytes / (1024.0 * 1024):0} MB";
     public string TimeText => SavedAt.Date == DateTime.Today
-        ? SavedAt.ToString("HH:mm", CultureInfo.CurrentCulture)
-        : SavedAt.ToString("dd.MM. HH:mm", CultureInfo.CurrentCulture);
+        ? SavedAt.ToString("HH:mm", CultureInfo.InvariantCulture)
+        : SavedAt.ToString(Localization.Loc.T("Format_ClipDate"), CultureInfo.InvariantCulture);
 }
 
 /// <summary>Writes a snapshot of the RAM buffer to disk as a regular MP4.</summary>
@@ -40,7 +40,7 @@ public sealed class ClipSaver
         await WaitForStreamTimeAsync(buffer, anchor, TimeSpan.FromSeconds(settings.KeyframeIntervalSec * 2 + 2), ct);
 
         using var snapshot = buffer.Snapshot(request.Seconds, anchor)
-            ?? throw new InvalidOperationException("Der Replay-Puffer ist noch leer.");
+            ?? throw new InvalidOperationException(Localization.Loc.T("Err_BufferEmpty"));
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try

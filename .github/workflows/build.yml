@@ -36,6 +36,19 @@ jobs:
         shell: pwsh
         run: ./.github/scripts/report-diagnostics.ps1 -LogFile build.log
 
+      - name: Oberfläche prüfen (Deutsch und Englisch, alle Seiten)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'selftest-ui.txt'
+          $p = Start-Process dist/ClipRing/ClipRing.exe -ArgumentList '--selftest-ui', "`"$report`"" -Wait -PassThru
+          $text = if (Test-Path $report) { Get-Content $report -Raw } else { '(kein Bericht)' }
+          Write-Host $text
+          $summary = (($text -split "`r?`n") | Where-Object { $_ }) -join ' | '
+          if ($summary.Length -gt 3500) { $summary = $summary.Substring(0, 3500) + ' …' }
+          if ($p.ExitCode -eq 0) { "::notice title=Oberfläche::$summary" }
+          else { "::error title=Oberfläche::Exit $($p.ExitCode): $summary"; exit 1 }
+
       - name: Eingebautes FFmpeg prüfen (entpacken, Prüfsumme, Start)
         shell: pwsh
         timeout-minutes: 5

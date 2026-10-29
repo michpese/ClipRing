@@ -40,17 +40,12 @@ public sealed class Cs2GameStateServer : IDisposable
     public string? LastMap { get; private set; }
     public string? LastMode { get; private set; }
 
-    /// <summary>German display name of a GSI game mode.</summary>
+    /// <summary>Display name of a GSI game mode in the UI language.</summary>
     public static string ModeName(string? mode) => mode switch
     {
-        "competitive" or "premier" => "Wettkampf",
-        "scrimcomp2v2" => "Wingman",
-        "casual" => "Gelegenheitsspiel",
-        "deathmatch" => "Deathmatch",
-        "gungameprogressive" => "Wettrüsten",
-        "gungametrbomb" => "Demolition",
-        "custom" => "Benutzerdefiniert",
-        null or "" => "unbekannter Modus",
+        "competitive" or "premier" or "scrimcomp2v2" or "casual" or "deathmatch" or "gungameprogressive"
+            or "gungametrbomb" or "custom" => Localization.Loc.T("Cs2Mode_" + mode),
+        null or "" => Localization.Loc.T("Cs2Mode_unknown"),
         _ => mode,
     };
 
@@ -228,7 +223,7 @@ public static class Cs2GsiInstaller
     {
         library.Rescan();
         var dir = FindCfgDirectory(library)
-            ?? throw new DirectoryNotFoundException("Counter-Strike 2 wurde in keiner Steam-Bibliothek gefunden.");
+            ?? throw new DirectoryNotFoundException(Localization.Loc.T("Cs2_NotFound"));
 
         var cfg = $$"""
             "ClipRing"

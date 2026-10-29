@@ -23,7 +23,14 @@ public static class SettingsStore
             {
                 var json = File.ReadAllText(AppPaths.SettingsFile);
                 var settings = JsonSerializer.Deserialize<AppSettings>(json, Options);
-                if (settings is not null) return settings;
+                if (settings is not null)
+                {
+                    // Hotkeys used to be stored with German key names ("Strg+Alt+F10").
+                    settings.HotkeySave = Hotkeys.HotkeyBinding.Normalize(settings.HotkeySave);
+                    settings.HotkeySaveShort = Hotkeys.HotkeyBinding.Normalize(settings.HotkeySaveShort);
+                    settings.HotkeyToggle = Hotkeys.HotkeyBinding.Normalize(settings.HotkeyToggle);
+                    return settings;
+                }
             }
         }
         catch (Exception ex)

@@ -4,13 +4,13 @@ using ClipRing.Audio;
 using ClipRing.Capture;
 using ClipRing.Core;
 using ClipRing.Highlights;
+using ClipRing.Hotkeys;
+using ClipRing.Localization;
 using ClipRing.Services;
 using Microsoft.Win32;
 using NAudio.CoreAudioApi;
 
 namespace ClipRing.UI;
-
-public sealed record Option<T>(T Value, string Label);
 
 public sealed class MainViewModel : ObservableObject
 {
@@ -19,10 +19,9 @@ public sealed class MainViewModel : ObservableObject
         Service = service;
         Settings = service.Settings;
 
-        FpsOptions = BuildFpsOptions();
-        RebuildEncoderOptions();
-        RebuildMonitorOptions();
+        RebuildOptions();
         RefreshDevices();
+        Loc.LanguageChanged += OnLanguageChanged;
 
         Service.PropertyChanged += OnServicePropertyChanged;
         Settings.PropertyChanged += OnSettingsPropertyChanged;
@@ -61,113 +60,102 @@ public sealed class MainViewModel : ObservableObject
     private string _cs2InstallStatus = "";
     public string Cs2InstallStatus { get => _cs2InstallStatus; private set => Set(ref _cs2InstallStatus, value); }
 
-    public string PauseButtonText => Service.IsPaused ? "Replay fortsetzen" : "Replay pausieren";
+    public string PauseButtonText => Loc.T(Service.IsPaused ? "Btn_ResumeReplay" : "Btn_PauseReplay");
+
+    public string HotkeySaveText => HotkeyBinding.DisplayText(Settings.HotkeySave);
 
     // ---------------------------------------------------------------- options
-    public IReadOnlyList<Option<ResolutionMode>> ResolutionOptions { get; } = new Option<ResolutionMode>[]
-    {
-        new(ResolutionMode.Native, "Nativ (Monitorauflösung)"),
-        new(ResolutionMode.P2160, "2160p (4K)"),
-        new(ResolutionMode.P1440, "1440p"),
-        new(ResolutionMode.P1080, "1080p"),
-        new(ResolutionMode.P720, "720p"),
-    };
-
-    public IReadOnlyList<Option<int>> FpsOptions { get; }
-
-    public IReadOnlyList<Option<CaptureMethod>> CaptureMethodOptions { get; } = new Option<CaptureMethod>[]
-    {
-        new(CaptureMethod.Auto, "Automatisch (empfohlen)"),
-        new(CaptureMethod.WindowsGraphicsCapture, "Windows Graphics Capture"),
-        new(CaptureMethod.DesktopDuplication, "Desktop Duplication"),
-        new(CaptureMethod.GameWindow, "Spielfenster (Graphics Capture)"),
-    };
-
-    public IReadOnlyList<Option<VideoCodec>> CodecOptions { get; } = new Option<VideoCodec>[]
-    {
-        new(VideoCodec.H264, "H.264 (überall abspielbar)"),
-        new(VideoCodec.Hevc, "HEVC / H.265 (kleiner)"),
-        new(VideoCodec.Av1, "AV1 (am kleinsten, neuere GPUs)"),
-    };
-
+    // All lists update in place (LiveOptions), so a language switch or a later detection result never
+    // clears the selection in a ComboBox.
+    public LiveOptions<string> LanguageOptions { get; } = new();
+    public LiveOptions<ResolutionMode> ResolutionOptions { get; } = new();
+    public LiveOptions<int> FpsOptions { get; } = new();
+    public LiveOptions<CaptureMethod> CaptureMethodOptions { get; } = new();
+    public LiveOptions<VideoCodec> CodecOptions { get; } = new();
     public LiveOptions<EncoderBackend> EncoderOptions { get; } = new();
-
-    public IReadOnlyList<Option<QualityPreset>> QualityOptions { get; } = new Option<QualityPreset>[]
-    {
-        new(QualityPreset.Low, "Niedrig (spart Speicher)"),
-        new(QualityPreset.Medium, "Mittel"),
-        new(QualityPreset.High, "Hoch (empfohlen)"),
-        new(QualityPreset.Ultra, "Sehr hoch"),
-        new(QualityPreset.Custom, "Eigene Bitrate"),
-    };
-
-    public IReadOnlyList<Option<RateControlMode>> RateControlOptions { get; } = new Option<RateControlMode>[]
-    {
-        new(RateControlMode.Vbr, "Variabel (VBR)"),
-        new(RateControlMode.Cbr, "Konstant (CBR)"),
-    };
-
-    public IReadOnlyList<Option<EncoderSpeed>> SpeedOptions { get; } = new Option<EncoderSpeed>[]
-    {
-        new(EncoderSpeed.Fast, "Schnell (geringste Last)"),
-        new(EncoderSpeed.Balanced, "Ausgewogen"),
-        new(EncoderSpeed.Quality, "Qualität"),
-    };
-
-    public IReadOnlyList<Option<int>> AudioBitrateOptions { get; } = new Option<int>[]
-    {
-        new(128, "128 kbit/s"), new(160, "160 kbit/s"), new(192, "192 kbit/s"), new(256, "256 kbit/s"), new(320, "320 kbit/s"),
-    };
-
-    public IReadOnlyList<Option<int>> ShortClipOptions { get; } = new[] { 10, 15, 20, 30, 45, 60, 90, 120 }
-        .Select(s => new Option<int>(s, $"{s} Sekunden")).ToArray();
-
-    public IReadOnlyList<Option<Cs2ModeFilter>> Cs2ModeOptions { get; } = new Option<Cs2ModeFilter>[]
-    {
-        new(Cs2ModeFilter.Competitive, "Nur Wettkampf und Premier"),
-        new(Cs2ModeFilter.CompetitiveAndWingman, "Wettkampf, Premier und Wingman"),
-        new(Cs2ModeFilter.All, "Alle Modi"),
-    };
-
-    public IReadOnlyList<Option<int>> KillOptions { get; } = new Option<int>[]
-    {
-        new(1, "Jeder Kill"), new(2, "Ab 2 Kills"), new(3, "Ab 3 Kills"), new(4, "Ab 4 Kills"), new(5, "Nur Ace"),
-    };
-
+    public LiveOptions<QualityPreset> QualityOptions { get; } = new();
+    public LiveOptions<RateControlMode> RateControlOptions { get; } = new();
+    public LiveOptions<EncoderSpeed> SpeedOptions { get; } = new();
+    public LiveOptions<int> AudioBitrateOptions { get; } = new();
+    public LiveOptions<int> ShortClipOptions { get; } = new();
+    public LiveOptions<Cs2ModeFilter> Cs2ModeOptions { get; } = new();
+    public LiveOptions<int> KillOptions { get; } = new();
     public LiveOptions<int> MonitorOptions { get; } = new();
+    public LiveOptions<string> OutputDevices { get; } = new();
+    public LiveOptions<string> InputDevices { get; } = new();
 
-    private IReadOnlyList<AudioDeviceOption> _outputDevices = Array.Empty<AudioDeviceOption>();
-    public IReadOnlyList<AudioDeviceOption> OutputDevices { get => _outputDevices; private set => Set(ref _outputDevices, value); }
+    private static (T, string) O<T>(T value, string key) => (value, Loc.T(key));
 
-    private IReadOnlyList<AudioDeviceOption> _inputDevices = Array.Empty<AudioDeviceOption>();
-    public IReadOnlyList<AudioDeviceOption> InputDevices { get => _inputDevices; private set => Set(ref _inputDevices, value); }
-
-    private IReadOnlyList<Option<int>> BuildFpsOptions()
+    private void RebuildOptions()
     {
-        var values = new List<int> { 30, 48, 60, 90, 120, 144, 165, 240 };
-        if (!values.Contains(Settings.Fps)) values.Add(Settings.Fps);
-        return values.OrderBy(v => v).Select(v => new Option<int>(v, $"{v} fps")).ToArray();
+        LanguageOptions.Update(new[]
+        {
+            ("system", Loc.T("Opt_LanguageSystem")), ("de", "Deutsch"), ("en", "English"),
+        });
+        ResolutionOptions.Update(new[]
+        {
+            O(ResolutionMode.Native, "Opt_ResNative"), (ResolutionMode.P2160, "2160p (4K)"), (ResolutionMode.P1440, "1440p"),
+            (ResolutionMode.P1080, "1080p"), (ResolutionMode.P720, "720p"),
+        });
+        var fps = new List<int> { 30, 48, 60, 90, 120, 144, 165, 240 };
+        if (!fps.Contains(Settings.Fps)) fps.Add(Settings.Fps);
+        FpsOptions.Update(fps.OrderBy(v => v).Select(v => (v, $"{v} fps")));
+        CaptureMethodOptions.Update(new[]
+        {
+            O(CaptureMethod.Auto, "Opt_Automatic"),
+            (CaptureMethod.WindowsGraphicsCapture, "Windows Graphics Capture"),
+            (CaptureMethod.DesktopDuplication, "Desktop Duplication"),
+            O(CaptureMethod.GameWindow, "Opt_GameWindow"),
+        });
+        QualityOptions.Update(new[]
+        {
+            O(QualityPreset.Low, "Opt_QualityLow"), O(QualityPreset.Medium, "Opt_QualityMedium"),
+            O(QualityPreset.High, "Opt_QualityHigh"), O(QualityPreset.Ultra, "Opt_QualityUltra"),
+            O(QualityPreset.Custom, "Opt_QualityCustom"),
+        });
+        RateControlOptions.Update(new[] { O(RateControlMode.Vbr, "Opt_Vbr"), O(RateControlMode.Cbr, "Opt_Cbr") });
+        SpeedOptions.Update(new[]
+        {
+            O(EncoderSpeed.Fast, "Opt_SpeedFast"), O(EncoderSpeed.Balanced, "Opt_SpeedBalanced"), O(EncoderSpeed.Quality, "Opt_SpeedQuality"),
+        });
+        AudioBitrateOptions.Update(new[] { 128, 160, 192, 256, 320 }.Select(k => (k, $"{k} kbit/s")));
+        ShortClipOptions.Update(new[] { 10, 15, 20, 30, 45, 60, 90, 120 }.Select(sec => (sec, Loc.F("Opt_Seconds", sec))));
+        Cs2ModeOptions.Update(new[]
+        {
+            O(Cs2ModeFilter.Competitive, "Opt_Cs2Competitive"), O(Cs2ModeFilter.CompetitiveAndWingman, "Opt_Cs2Wingman"),
+            O(Cs2ModeFilter.All, "Opt_Cs2All"),
+        });
+        KillOptions.Update(new[]
+        {
+            O(1, "Opt_KillsAny"), (2, Loc.F("Opt_KillsFrom", 2)), (3, Loc.F("Opt_KillsFrom", 3)), (4, Loc.F("Opt_KillsFrom", 4)),
+            O(5, "Opt_KillsAce"),
+        });
+        RebuildCodecAndEncoderOptions();
+        RebuildMonitorOptions();
     }
 
-    private void RebuildEncoderOptions()
+    /// <summary>
+    /// Codecs and encoders this PC cannot use are shown but disabled. Until the hardware check has run,
+    /// everything that is in the FFmpeg build stays selectable.
+    /// </summary>
+    private void RebuildCodecAndEncoderOptions()
     {
-        var available = Service.EncoderAvailability;
-        string Label(EncoderBackend b)
+        var caps = Service.Capabilities;
+        CodecOptions.Update(new[]
+        {
+            (VideoCodec.H264, Loc.T("Opt_CodecH264")), (VideoCodec.Hevc, Loc.T("Opt_CodecHevc")), (VideoCodec.Av1, Loc.T("Opt_CodecAv1")),
+        }.Select(c => (c.Item1, caps.CodecUsable(c.Item1) ? c.Item2 : Loc.F("Opt_NotSupported", c.Item2))));
+        foreach (var option in CodecOptions) option.IsEnabled = caps.CodecUsable(option.Value);
+
+        var codec = Settings.Codec;
+        var backends = new[] { EncoderBackend.Nvenc, EncoderBackend.Amf, EncoderBackend.Qsv, EncoderBackend.D3D12, EncoderBackend.Software };
+        EncoderOptions.Update(new[] { (EncoderBackend.Auto, Loc.T("Opt_Automatic")) }.Concat(backends.Select(b =>
         {
             string name = PipelineBuilder.BackendName(b);
-            return available.TryGetValue(b, out var ok) && !ok && Service.Ffmpeg is not null
-                ? $"{name} (nicht im FFmpeg-Build)"
-                : name;
-        }
-        EncoderOptions.Update(new[]
-        {
-            (EncoderBackend.Auto, "Automatisch (empfohlen)"),
-            (EncoderBackend.Nvenc, Label(EncoderBackend.Nvenc)),
-            (EncoderBackend.Amf, Label(EncoderBackend.Amf)),
-            (EncoderBackend.Qsv, Label(EncoderBackend.Qsv)),
-            (EncoderBackend.D3D12, Label(EncoderBackend.D3D12)),
-            (EncoderBackend.Software, Label(EncoderBackend.Software)),
-        });
+            return (b, caps.Usable(b, codec) ? name : Loc.F("Opt_NotAvailable", name));
+        })));
+        foreach (var option in EncoderOptions)
+            option.IsEnabled = option.Value == EncoderBackend.Auto || caps.Usable(option.Value, codec);
     }
 
     private void RebuildMonitorOptions()
@@ -176,16 +164,33 @@ public sealed class MainViewModel : ObservableObject
         if (monitors.Count == 0)
         {
             // Until detection finishes: a placeholder for the saved choice, replaced in place afterwards.
-            MonitorOptions.Update(new[] { (Settings.MonitorIndex, $"Monitor {Settings.MonitorIndex + 1} (wird erkannt …)") });
+            MonitorOptions.Update(new[] { (Settings.MonitorIndex, Loc.F("Opt_MonitorDetecting", Settings.MonitorIndex + 1)) });
             return;
         }
         MonitorOptions.Update(monitors.Select(m => (m.Index, m.Label)));
     }
 
+    private void OnLanguageChanged()
+    {
+        RebuildOptions();
+        RefreshDevices();
+        OnPropertyChanged(nameof(PauseButtonText));
+        OnPropertyChanged(nameof(HotkeySaveText));
+        UpdateCs2InstallStatus();
+        System.Windows.Data.CollectionViewSource.GetDefaultView(Service.RecentClips)?.Refresh();
+    }
+
     private void RefreshDevices()
     {
-        OutputDevices = AudioDevices.List(DataFlow.Render);
-        InputDevices = AudioDevices.List(DataFlow.Capture);
+        try
+        {
+            OutputDevices.Update(AudioDevices.List(DataFlow.Render).Select(d => (d.Id, d.Name)));
+            InputDevices.Update(AudioDevices.List(DataFlow.Capture).Select(d => (d.Id, d.Name)));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Audiogeräte nicht lesbar: " + ex.Message);
+        }
     }
 
     // ---------------------------------------------------------------- derived settings
@@ -264,7 +269,7 @@ public sealed class MainViewModel : ObservableObject
     {
         var dialog = new OpenFolderDialog
         {
-            Title = "Speicherort für Clips wählen",
+            Title = Loc.T("Dialog_ChooseClipFolder"),
             InitialDirectory = Directory.Exists(Settings.OutputFolder) ? Settings.OutputFolder : "",
         };
         if (dialog.ShowDialog() == true) Settings.OutputFolder = dialog.FolderName;
@@ -274,8 +279,8 @@ public sealed class MainViewModel : ObservableObject
     {
         var dialog = new OpenFileDialog
         {
-            Title = "ffmpeg.exe auswählen",
-            Filter = "ffmpeg.exe|ffmpeg.exe|Programme (*.exe)|*.exe",
+            Title = Loc.T("Dialog_ChooseFfmpeg"),
+            Filter = "ffmpeg.exe|ffmpeg.exe|" + Loc.T("Dialog_Programs") + " (*.exe)|*.exe",
         };
         if (dialog.ShowDialog() == true) Settings.FfmpegPath = dialog.FileName;
     }
@@ -292,7 +297,7 @@ public sealed class MainViewModel : ObservableObject
         {
             var path = Cs2GsiInstaller.Install(Service.Library, Settings.Cs2Port, Settings.Cs2Token);
             if (!Settings.Cs2Enabled) Settings.Cs2Enabled = true;
-            Cs2InstallStatus = $"Eingerichtet in {Path.GetDirectoryName(path)}. Starte CS2 neu, falls es gerade läuft.";
+            Cs2InstallStatus = Loc.F("Cs2_InstalledIn", Path.GetDirectoryName(path));
         }
         catch (Exception ex)
         {
@@ -305,10 +310,10 @@ public sealed class MainViewModel : ObservableObject
         try
         {
             Cs2InstallStatus = Cs2GsiInstaller.IsInstalled(Service.Library, Settings.Cs2Port, Settings.Cs2Token)
-                ? "Die Konfigurationsdatei ist in CS2 eingerichtet."
+                ? Loc.T("Cs2_Installed")
                 : Cs2GsiInstaller.FindCfgDirectory(Service.Library) is null
-                    ? "CS2 wurde in keiner Steam-Bibliothek gefunden."
-                    : "Noch nicht eingerichtet.";
+                    ? Loc.T("Cs2_NotFound")
+                    : Loc.T("Cs2_NotInstalled");
         }
         catch
         {
@@ -321,9 +326,8 @@ public sealed class MainViewModel : ObservableObject
     {
         switch (e.PropertyName)
         {
-            case nameof(ReplayService.EncoderAvailability):
-            case nameof(ReplayService.Ffmpeg):
-                App.Current.Dispatcher.InvokeAsync(RebuildEncoderOptions);
+            case nameof(ReplayService.Capabilities):
+                App.Current.Dispatcher.InvokeAsync(RebuildCodecAndEncoderOptions);
                 break;
             case nameof(ReplayService.Monitors):
                 App.Current.Dispatcher.InvokeAsync(RebuildMonitorOptions);
@@ -350,6 +354,15 @@ public sealed class MainViewModel : ObservableObject
             case nameof(AppSettings.Cs2Port):
             case nameof(AppSettings.Cs2Token):
                 UpdateCs2InstallStatus();
+                break;
+            case nameof(AppSettings.Codec):
+                RebuildCodecAndEncoderOptions();
+                break;
+            case nameof(AppSettings.HotkeySave):
+                OnPropertyChanged(nameof(HotkeySaveText));
+                break;
+            case nameof(AppSettings.Language):
+                Loc.Instance.Apply(Settings.Language);
                 break;
         }
     }

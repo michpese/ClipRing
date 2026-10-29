@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:ClipRing.UI"
+        xmlns:l="clr-namespace:ClipRing.Localization"
         Title="ClipRing"
         Width="1160" Height="800" MinWidth="940" MinHeight="620"
         WindowStartupLocation="CenterScreen"
-        Language="de-DE"
         Icon="/Assets/ClipRing.ico"
         Background="{StaticResource Brush.Ground}"
         Foreground="{StaticResource Brush.Text}"
@@ -42,49 +42,49 @@
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE80F;" />
-                            <TextBlock Text="Übersicht" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Overview}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE714;" />
-                            <TextBlock Text="Video" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Video}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE767;" />
-                            <TextBlock Text="Audio" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Audio}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE8B7;" />
-                            <TextBlock Text="Speichern" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Save}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE765;" />
-                            <TextBlock Text="Hotkeys" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Hotkeys}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE734;" />
-                            <TextBlock Text="Highlights" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Highlights}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE7FC;" />
-                            <TextBlock Text="Spiele" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_Games}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                     <ListBoxItem>
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Style="{StaticResource Text.Icon}" Text="&#xE713;" />
-                            <TextBlock Text="Allgemein" Margin="14,0,0,0" />
+                            <TextBlock Text="{l:T Nav_General}" Margin="14,0,0,0" />
                         </StackPanel>
                     </ListBoxItem>
                 </ListBox>
@@ -115,17 +115,17 @@
                                         <TextBlock Style="{StaticResource Text.Timer}" Margin="0,14,0,2"
                                                    Text="{Binding Service.BufferedSeconds, Converter={StaticResource Duration}}" />
                                         <TextBlock Style="{StaticResource Text.Muted}" FontSize="13.5">
-                                            <Run Text="von" />
+                                            <Run Text="{l:T Ov_Of}" />
                                             <Run Text="{Binding Service.BufferLengthText, Mode=OneWay}" />
-                                            <Run Text="im Arbeitsspeicher, belegt" />
+                                            <Run Text="{l:T Ov_InMemoryUsing}" />
                                             <Run Text="{Binding Service.BufferBytesText, Mode=OneWay}" />
                                         </TextBlock>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Top">
-                                        <Button Style="{StaticResource PrimaryButton}" Content="Clip speichern"
+                                        <Button Style="{StaticResource PrimaryButton}" Content="{l:T Btn_SaveClip}"
                                                 Command="{Binding SaveClipCommand}" />
                                         <TextBlock HorizontalAlignment="Center" Style="{StaticResource Text.Faint}" Margin="0,8,0,0"
-                                                   Text="{Binding Settings.HotkeySave}" />
+                                                   Text="{Binding HotkeySaveText}" />
                                     </StackPanel>
                                 </Grid>
 
@@ -143,7 +143,7 @@
 
                                 <StackPanel Orientation="Horizontal" Margin="0,18,0,0">
                                     <Button Content="{Binding PauseButtonText}" Command="{Binding TogglePauseCommand}" Margin="0,0,10,0" />
-                                    <Button Content="Clip-Ordner öffnen" Command="{Binding OpenOutputFolderCommand}" />
+                                    <Button Content="{l:T Btn_OpenClipFolder}" Command="{Binding OpenOutputFolderCommand}" />
                                 </StackPanel>
                             </StackPanel>
                         </Border>
@@ -156,7 +156,7 @@
                             </Grid.ColumnDefinitions>
 
                             <StackPanel>
-                                <TextBlock Text="Zuletzt gespeichert" Style="{StaticResource Text.SectionTitle}" />
+                                <TextBlock Text="{l:T Ov_Recent}" Style="{StaticResource Text.SectionTitle}" />
                                 <Border Style="{StaticResource Sheet}">
                                     <Grid>
                                         <ItemsControl ItemsSource="{Binding Service.RecentClips}">
@@ -175,10 +175,10 @@
                                                                            TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
                                                             </StackPanel>
                                                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="12,0,0,0">
-                                                                <Button Style="{StaticResource QuietButton}" Content="Abspielen"
+                                                                <Button Style="{StaticResource QuietButton}" Content="{l:T Btn_Play}"
                                                                         Command="{Binding DataContext.OpenClipCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding}" />
-                                                                <Button Style="{StaticResource QuietButton}" Content="Im Ordner zeigen"
+                                                                <Button Style="{StaticResource QuietButton}" Content="{l:T Btn_ShowInFolder}"
                                                                         Command="{Binding DataContext.ShowClipCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                         CommandParameter="{Binding}" />
                                                             </StackPanel>
@@ -189,33 +189,33 @@
                                         </ItemsControl>
                                         <TextBlock Style="{StaticResource Text.Muted}" Margin="20,22" FontSize="13.5"
                                                    Visibility="{Binding Service.RecentClips.Count, Converter={StaticResource EmptyToVisible}}">
-                                            <Run Text="Noch keine Clips. Drück" />
-                                            <Run Text="{Binding Settings.HotkeySave, Mode=OneWay}" Foreground="{StaticResource Brush.Text}" />
-                                            <Run Text="im Spiel, dann landet hier der letzte Moment." />
+                                            <Run Text="{l:T Ov_NoClipsPress}" />
+                                            <Run Text="{Binding HotkeySaveText, Mode=OneWay}" Foreground="{StaticResource Brush.Text}" />
+                                            <Run Text="{l:T Ov_NoClipsRest}" />
                                         </TextBlock>
                                     </Grid>
                                 </Border>
                             </StackPanel>
 
                             <StackPanel Grid.Column="2">
-                                <TextBlock Text="Aufnahme" Style="{StaticResource Text.SectionTitle}" />
+                                <TextBlock Text="{l:T Common_Recording}" Style="{StaticResource Text.SectionTitle}" />
                                 <Border Style="{StaticResource Sheet}" Padding="20,16">
                                     <StackPanel>
-                                        <TextBlock Text="Spiel" Style="{StaticResource Text.Faint}" />
+                                        <TextBlock Text="{l:T Common_Game}" Style="{StaticResource Text.Faint}" />
                                         <TextBlock Text="{Binding Service.GameText}" Style="{StaticResource Text.Value}" Margin="0,2,0,12" />
-                                        <TextBlock Text="Encoder" Style="{StaticResource Text.Faint}" />
+                                        <TextBlock Text="{l:T Common_Encoder}" Style="{StaticResource Text.Faint}" />
                                         <TextBlock Text="{Binding Service.EncoderText}" Style="{StaticResource Text.Value}" Margin="0,2,0,12" />
-                                        <TextBlock Text="Ausgabe" Style="{StaticResource Text.Faint}" />
+                                        <TextBlock Text="{l:T Ov_Output}" Style="{StaticResource Text.Faint}" />
                                         <TextBlock Text="{Binding Service.OutputText}" Style="{StaticResource Text.Value}" Margin="0,2,0,0" />
                                     </StackPanel>
                                 </Border>
 
-                                <TextBlock Text="Pegel" Style="{StaticResource Text.SectionTitle}" />
+                                <TextBlock Text="{l:T Ov_Levels}" Style="{StaticResource Text.SectionTitle}" />
                                 <Border Style="{StaticResource Sheet}" Padding="20,16">
                                     <StackPanel>
-                                        <TextBlock Text="PC-Ton" Style="{StaticResource Text.Faint}" />
+                                        <TextBlock Text="{l:T Common_PcAudio}" Style="{StaticResource Text.Faint}" />
                                         <ui:LevelMeter Height="8" Margin="0,6,0,14" Level="{Binding Service.SystemPeak, Mode=OneWay}" />
-                                        <TextBlock Text="Mikrofon" Style="{StaticResource Text.Faint}" />
+                                        <TextBlock Text="{l:T Common_Microphone}" Style="{StaticResource Text.Faint}" />
                                         <ui:LevelMeter Height="8" Margin="0,6,0,0" Level="{Binding Service.MicPeak, Mode=OneWay}" />
                                     </StackPanel>
                                 </Border>
@@ -229,59 +229,59 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Video" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_Video}" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}"
-                                   Text="Änderungen auf dieser Seite starten den Replay-Puffer neu, dabei wird er geleert." />
+                                   Text="{l:T Video_Lead}" />
 
-                        <TextBlock Text="Bild" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Video_Picture}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Monitor" Description="Der Bildschirm, auf dem du spielst.">
+                                <ui:SettingRow Title="{l:T Row_Monitor}" Description="{l:T Desc_Monitor}">
                                     <ComboBox Width="280" ItemsSource="{Binding MonitorOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.MonitorIndex}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Auflösung" Description="Wird nur verkleinert, nie vergrößert. Nativ ist am schärfsten.">
+                                <ui:SettingRow Title="{l:T Row_Resolution}" Description="{l:T Desc_Resolution}">
                                     <ComboBox Width="280" ItemsSource="{Binding ResolutionOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Resolution}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Bildrate" Description="Mehr als die Bildwiederholrate des Monitors bringt nichts.">
+                                <ui:SettingRow Title="{l:T Row_FrameRate}" Description="{l:T Desc_FrameRate}">
                                     <ComboBox Width="280" ItemsSource="{Binding FpsOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Fps}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Aufnahmemethode"
-                                               Description="Bildschirm: Windows Graphics Capture oder Desktop Duplication. Spielfenster nimmt nur das erkannte Spiel auf, direkt aus dessen Bildausgabe; das hilft, wenn die Bildschirmaufnahme flackert oder alte Bilder zeigt (z. B. den Ladebildschirm).">
+                                <ui:SettingRow Title="{l:T Row_CaptureMethod}"
+                                               Description="{l:T Desc_CaptureMethod}">
                                     <ComboBox Width="280" ItemsSource="{Binding CaptureMethodOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.CaptureMethod}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Mauszeiger aufnehmen" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_RecordCursor}" ShowDivider="False">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CaptureCursor}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Encoder" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Common_Encoder}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Codec"
-                                               Description="H.264 läuft überall. HEVC und AV1 sind bei gleicher Qualität deutlich kleiner, brauchen aber eine neuere Grafikkarte.">
+                                <ui:SettingRow Title="{l:T Row_Codec}"
+                                               Description="{l:T Desc_Codec}">
                                     <ComboBox Width="280" ItemsSource="{Binding CodecOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Codec}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Encoder"
-                                               Description="Automatisch testet NVIDIA, AMD, Intel und Direct3D 12 der Reihe nach und nimmt den ersten, der funktioniert. Software belastet die CPU.">
+                                <ui:SettingRow Title="{l:T Common_Encoder}"
+                                               Description="{l:T Desc_Encoder}">
                                     <ComboBox Width="280" ItemsSource="{Binding EncoderOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Encoder}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="In Verwendung">
+                                <ui:SettingRow Title="{l:T Row_InUse}">
                                     <TextBlock Text="{Binding Service.EncoderText}" Style="{StaticResource Text.Value}" MaxWidth="300"
                                                TextAlignment="Right" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Encoder-Tempo" Description="Schnell entlastet die Grafikkarte und schafft auch 4K mit 120 fps. Qualität holt mehr aus derselben Bitrate. Ruckeln Clips, eine Stufe schneller wählen.">
+                                <ui:SettingRow Title="{l:T Row_EncoderSpeed}" Description="{l:T Desc_EncoderSpeed}">
                                     <ComboBox Width="280" ItemsSource="{Binding SpeedOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Speed}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Keyframe-Abstand" ShowDivider="False"
-                                               Description="Clips beginnen immer an einem Keyframe. Kürzer schneidet genauer, kostet aber etwas Bitrate.">
+                                <ui:SettingRow Title="{l:T Row_KeyframeInterval}" ShowDivider="False"
+                                               Description="{l:T Desc_KeyframeInterval}">
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Width="200" Minimum="0.5" Maximum="4" TickFrequency="0.5" IsSnapToTickEnabled="True"
                                                 Value="{Binding Settings.KeyframeIntervalSec}" VerticalAlignment="Center" />
@@ -292,14 +292,14 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Qualität" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Quality}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Voreinstellung" Description="Die Bitrate passt sich Auflösung, Bildrate und Codec an.">
+                                <ui:SettingRow Title="{l:T Row_Preset}" Description="{l:T Desc_Preset}">
                                     <ComboBox Width="280" ItemsSource="{Binding QualityOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Quality}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Bitrate">
+                                <ui:SettingRow Title="{l:T Row_Bitrate}">
                                     <Grid>
                                         <StackPanel Orientation="Horizontal"
                                                     Visibility="{Binding IsCustomBitrate, Converter={StaticResource BoolToVisible}}">
@@ -311,23 +311,23 @@
                                         <TextBlock Style="{StaticResource Text.Value}" VerticalAlignment="Center" HorizontalAlignment="Right"
                                                    Visibility="{Binding IsCustomBitrate, Converter={StaticResource BoolToVisible}, ConverterParameter=invert}">
                                             <Run Text="{Binding Service.EstimatedBitrateText, Mode=OneWay}" />
-                                            <Run Text="bei" Foreground="{StaticResource Brush.Muted}" />
+                                            <Run Text="{l:T Video_At}" Foreground="{StaticResource Brush.Muted}" />
                                             <Run Text="{Binding Service.EstimatedOutputText, Mode=OneWay}" Foreground="{StaticResource Brush.Muted}" />
                                         </TextBlock>
                                     </Grid>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Ratenkontrolle" ShowDivider="False"
-                                               Description="Variabel spart in ruhigen Szenen Platz. Konstant hält die Dateigröße exakt vorhersagbar.">
+                                <ui:SettingRow Title="{l:T Row_RateControl}" ShowDivider="False"
+                                               Description="{l:T Desc_RateControl}">
                                     <ComboBox Width="280" ItemsSource="{Binding RateControlOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.RateControl}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Replay-Puffer" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_ReplayBuffer}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Länge" Description="So viel hält ClipRing ständig im Arbeitsspeicher vor. Ein Clip ist höchstens so lang.">
+                                <ui:SettingRow Title="{l:T Row_Length}" Description="{l:T Desc_Length}">
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Width="200" Minimum="15" Maximum="600" TickFrequency="15" IsSnapToTickEnabled="True"
                                                 Value="{Binding Settings.BufferSeconds}" VerticalAlignment="Center" />
@@ -335,17 +335,17 @@
                                                    Text="{Binding Service.BufferLengthText}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Speicherbedarf">
+                                <ui:SettingRow Title="{l:T Row_MemoryUse}">
                                     <StackPanel HorizontalAlignment="Right">
                                         <TextBlock Text="{Binding Service.EstimatedRamText}" Style="{StaticResource Text.Value}" TextAlignment="Right" />
-                                        <TextBlock Text="Das ist viel für diesen PC. Kürzere Länge oder niedrigere Bitrate wählen."
+                                        <TextBlock Text="{l:T Video_RamWarning}"
                                                    Foreground="{StaticResource Brush.Warn}" Style="{StaticResource Text.Muted}" MaxWidth="300"
                                                    TextAlignment="Right" Margin="0,4,0,0"
                                                    Visibility="{Binding Service.RamWarning, Converter={StaticResource BoolToVisible}}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Nur aufnehmen, wenn ein Spiel läuft" ShowDivider="False"
-                                               Description="Startet den Puffer erst, wenn ein Spiel erkannt wird, und stoppt ihn, wenn es beendet ist.">
+                                <ui:SettingRow Title="{l:T Row_OnlyWhenGame}" ShowDivider="False"
+                                               Description="{l:T Desc_OnlyWhenGame}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.OnlyWhenGameRunning}" />
                                 </ui:SettingRow>
                             </StackPanel>
@@ -358,22 +358,22 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Audio" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_Audio}" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}"
-                                   Text="PC-Ton und Mikrofon werden zu einer Tonspur gemischt. Lautstärke und Geräte lassen sich ändern, ohne dass der Puffer neu startet." />
+                                   Text="{l:T Audio_Lead}" />
 
-                        <TextBlock Text="PC-Ton" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Common_PcAudio}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="PC-Ton aufnehmen" Description="Alles, was über das gewählte Ausgabegerät läuft: Spiel, Voice-Chat, Musik.">
+                                <ui:SettingRow Title="{l:T Row_RecordPcAudio}" Description="{l:T Desc_RecordPcAudio}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CaptureSystemAudio}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Ausgabegerät">
-                                    <ComboBox Width="300" ItemsSource="{Binding OutputDevices}" DisplayMemberPath="Name"
-                                              SelectedValuePath="Id" SelectedValue="{Binding Settings.SystemAudioDeviceId}"
+                                <ui:SettingRow Title="{l:T Row_OutputDevice}">
+                                    <ComboBox Width="300" ItemsSource="{Binding OutputDevices}" DisplayMemberPath="Label"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.SystemAudioDeviceId}"
                                               IsEnabled="{Binding Settings.CaptureSystemAudio}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Lautstärke in der Aufnahme" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_VolumeInRecording}" ShowDivider="False">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal">
                                             <Slider Width="220" Minimum="0" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
@@ -389,18 +389,18 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Mikrofon" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Common_Microphone}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Mikrofon aufnehmen">
+                                <ui:SettingRow Title="{l:T Row_RecordMic}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CaptureMicrophone}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Aufnahmegerät">
-                                    <ComboBox Width="300" ItemsSource="{Binding InputDevices}" DisplayMemberPath="Name"
-                                              SelectedValuePath="Id" SelectedValue="{Binding Settings.MicrophoneDeviceId}"
+                                <ui:SettingRow Title="{l:T Row_InputDevice}">
+                                    <ComboBox Width="300" ItemsSource="{Binding InputDevices}" DisplayMemberPath="Label"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.MicrophoneDeviceId}"
                                               IsEnabled="{Binding Settings.CaptureMicrophone}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Lautstärke in der Aufnahme" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_VolumeInRecording}" ShowDivider="False">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal">
                                             <Slider Width="220" Minimum="0" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
@@ -416,15 +416,15 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Tonspur" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_AudioTrack}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Audio-Bitrate" Description="AAC, 48 kHz Stereo.">
+                                <ui:SettingRow Title="{l:T Row_AudioBitrate}" Description="{l:T Desc_AudioBitrate}">
                                     <ComboBox Width="200" ItemsSource="{Binding AudioBitrateOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.AudioBitrateKbps}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Ton-Versatz"
-                                               Description="Nur nötig, wenn Ton und Bild nicht zusammenpassen. Positive Werte verzögern den Ton. Startet den Puffer neu.">
+                                <ui:SettingRow Title="{l:T Row_AudioOffset}"
+                                               Description="{l:T Desc_AudioOffset}">
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Width="200" Minimum="-500" Maximum="500" TickFrequency="10" IsSnapToTickEnabled="True"
                                                 Value="{Binding Settings.AudioOffsetMs}" VerticalAlignment="Center" />
@@ -432,8 +432,8 @@
                                                    Text="{Binding Settings.AudioOffsetMs, StringFormat={}{0} ms}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Geräteliste" Description="Neu angeschlossenes Headset fehlt in der Auswahl?" ShowDivider="False">
-                                    <Button Content="Aktualisieren" Command="{Binding RefreshDevicesCommand}" />
+                                <ui:SettingRow Title="{l:T Row_DeviceList}" Description="{l:T Desc_DeviceList}" ShowDivider="False">
+                                    <Button Content="{l:T Btn_Refresh}" Command="{Binding RefreshDevicesCommand}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
@@ -445,23 +445,23 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Speichern" Style="{StaticResource Text.PageTitle}" />
-                        <TextBlock Style="{StaticResource Text.Lead}" Text="Wohin Clips geschrieben werden und wie sie heißen." />
+                        <TextBlock Text="{l:T Nav_Save}" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Style="{StaticResource Text.Lead}" Text="{l:T Save_Lead}" />
 
-                        <TextBlock Text="Ablage" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Location}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Speicherort">
+                                <ui:SettingRow Title="{l:T Row_Folder}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBox Width="300" Text="{Binding Settings.OutputFolder}" VerticalAlignment="Center" />
-                                        <Button Content="Ändern …" Margin="8,0,0,0" Command="{Binding BrowseOutputFolderCommand}" />
-                                        <Button Content="Öffnen" Margin="8,0,0,0" Command="{Binding OpenOutputFolderCommand}" />
+                                        <Button Content="{l:T Btn_Change}" Margin="8,0,0,0" Command="{Binding BrowseOutputFolderCommand}" />
+                                        <Button Content="{l:T Btn_Open}" Margin="8,0,0,0" Command="{Binding OpenOutputFolderCommand}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Unterordner je Spiel" Description="Legt für jedes erkannte Spiel einen eigenen Ordner an, z. B. Counter-Strike 2.">
+                                <ui:SettingRow Title="{l:T Row_GameSubfolders}" Description="{l:T Desc_GameSubfolders}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.GameSubfolders}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Dateiname" ShowDivider="False" Description="Platzhalter: {game}, {date}, {time} und {tag} (z. B. 3K bei Highlights).">
+                                <ui:SettingRow Title="{l:T Row_FileName}" ShowDivider="False" Description="{l:T Desc_FileName}">
                                     <StackPanel>
                                         <TextBox Width="300" Text="{Binding Settings.FileNameTemplate, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource Text.Faint}" Margin="2,6,0,0" MaxWidth="300" TextWrapping="NoWrap"
@@ -471,13 +471,13 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Rückmeldung" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Feedback}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Benachrichtigung anzeigen" Description="Windows-Hinweis mit Spiel, Länge und Größe des Clips.">
+                                <ui:SettingRow Title="{l:T Row_ShowNotification}" Description="{l:T Desc_ShowNotification}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.NotifyOnSave}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Ton abspielen" Description="Kurzer Signalton beim Speichern per Hotkey, damit du im Spiel weißt, dass es geklappt hat. Automatische Highlights bleiben stumm." ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_PlaySound}" Description="{l:T Desc_PlaySound}" ShowDivider="False">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PlaySoundOnSave}" />
                                 </ui:SettingRow>
                             </StackPanel>
@@ -490,24 +490,24 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Hotkeys" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_Hotkeys}" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}"
-                                   Text="Feld anklicken und die Tastenkombination drücken. Rücktaste oder Entf entfernt sie, Esc bricht ab. Hotkeys funktionieren auch, während ein Spiel im Vordergrund ist." />
+                                   Text="{l:T Hotkeys_Lead}" />
 
-                        <TextBlock Text="Aufnahme" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Common_Recording}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Replay speichern" Description="Speichert den gesamten Puffer.">
+                                <ui:SettingRow Title="{l:T Row_SaveReplay}" Description="{l:T Desc_SaveReplay}">
                                     <ui:HotkeyBox Hotkey="{Binding Settings.HotkeySave}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Kurzen Clip speichern" Description="Speichert nur das Ende des Puffers.">
+                                <ui:SettingRow Title="{l:T Row_SaveShort}" Description="{l:T Desc_SaveShort}">
                                     <StackPanel Orientation="Horizontal">
                                         <ComboBox Width="140" ItemsSource="{Binding ShortClipOptions}" DisplayMemberPath="Label"
                                                   SelectedValuePath="Value" SelectedValue="{Binding Settings.ShortClipSeconds}" Margin="0,0,10,0" />
                                         <ui:HotkeyBox Hotkey="{Binding Settings.HotkeySaveShort}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Replay pausieren oder fortsetzen" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_TogglePause}" ShowDivider="False">
                                     <ui:HotkeyBox Hotkey="{Binding Settings.HotkeyToggle}" />
                                 </ui:SettingRow>
                             </StackPanel>
@@ -524,14 +524,14 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Highlights" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_Highlights}" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}"
-                                   Text="Speichert automatisch einen Clip, wenn du Kills machst. Kills kurz hintereinander werden zu einem Clip zusammengefasst und als 2K, 3K oder Ace benannt." />
+                                   Text="{l:T Highlights_Lead}" />
 
-                        <TextBlock Text="Clip-Länge" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_ClipLength}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Vorlauf" Description="Sekunden vor dem ersten Kill.">
+                                <ui:SettingRow Title="{l:T Row_PreRoll}" Description="{l:T Desc_PreRoll}">
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Width="200" Minimum="2" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
                                                 Value="{Binding Settings.HighlightPreRollSec}" VerticalAlignment="Center" />
@@ -539,7 +539,7 @@
                                                    Text="{Binding Settings.HighlightPreRollSec, StringFormat={}{0} s}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Nachlauf" Description="Sekunden nach dem letzten Kill. Weitere Kills in dieser Zeit verlängern den Clip." ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_PostRoll}" Description="{l:T Desc_PostRoll}" ShowDivider="False">
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Width="200" Minimum="1" Maximum="15" TickFrequency="1" IsSnapToTickEnabled="True"
                                                 Value="{Binding Settings.HighlightPostRollSec}" VerticalAlignment="Center" />
@@ -553,29 +553,29 @@
                         <TextBlock Text="Counter-Strike 2" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Automatische Clips"
-                                               Description="Nutzt Valves offizielle Game State Integration. Kein Eingriff ins Spiel, VAC-sicher.">
+                                <ui:SettingRow Title="{l:T Row_AutoClips}"
+                                               Description="{l:T Desc_AutoClipsCs2}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.Cs2Enabled}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Spiel anbinden" Description="Legt eine kleine Konfigurationsdatei im CS2-Ordner ab. Danach CS2 einmal neu starten.">
+                                <ui:SettingRow Title="{l:T Row_ConnectGame}" Description="{l:T Desc_ConnectGame}">
                                     <StackPanel HorizontalAlignment="Right">
-                                        <Button Content="Einrichten" Command="{Binding InstallCs2Command}" HorizontalAlignment="Right" />
+                                        <Button Content="{l:T Btn_SetUp}" Command="{Binding InstallCs2Command}" HorizontalAlignment="Right" />
                                         <TextBlock Text="{Binding Cs2InstallStatus}" Style="{StaticResource Text.Muted}" MaxWidth="320"
                                                    TextAlignment="Right" Margin="0,6,0,0" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Status">
+                                <ui:SettingRow Title="{l:T Row_Status}">
                                     <TextBlock Text="{Binding Service.Cs2StatusText}" Style="{StaticResource Text.Value}" MaxWidth="340" TextAlignment="Right" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Spielmodi" Description="Deathmatch und Gelegenheitsspiele erzeugen sonst sehr viele Clips.">
+                                <ui:SettingRow Title="{l:T Row_GameModes}" Description="{l:T Desc_GameModes}">
                                     <ComboBox Width="260" ItemsSource="{Binding Cs2ModeOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Cs2Modes}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Clip erstellen">
+                                <ui:SettingRow Title="{l:T Row_CreateClip}">
                                     <ComboBox Width="200" ItemsSource="{Binding KillOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Cs2MinKills}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Aufwärmphase ignorieren" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_IgnoreWarmup}" ShowDivider="False">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.Cs2IgnoreWarmup}" />
                                 </ui:SettingRow>
                             </StackPanel>
@@ -589,28 +589,28 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Spiele" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_Games}" Style="{StaticResource Text.PageTitle}" />
                         <TextBlock Style="{StaticResource Text.Lead}"
-                                   Text="Das Spiel im Vordergrund bestimmt Ordner und Dateinamen. Erkannt wird über eine eingebaute Liste, Steam-, Epic- und GOG-Bibliotheken und Vollbild-Fenster." />
+                                   Text="{l:T Games_Lead}" />
 
-                        <TextBlock Text="Erkennung" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Detection}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Vollbild-Programme als Spiel behandeln"
-                                               Description="Findet auch Spiele außerhalb der Bibliotheken. Browser und Videoplayer sind ausgenommen.">
+                                <ui:SettingRow Title="{l:T Row_FullscreenAsGame}"
+                                               Description="{l:T Desc_FullscreenAsGame}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.DetectFullscreenApps}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Gerade im Vordergrund" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_ForegroundNow}" ShowDivider="False">
                                     <TextBlock Text="{Binding Service.ForegroundText}" Style="{StaticResource Text.Value}" MaxWidth="380" TextAlignment="Right" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Eigene Namen" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_CustomNames}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}" Padding="20,16">
                             <StackPanel>
                                 <TextBlock Style="{StaticResource Text.Muted}"
-                                           Text="Eine Zeile pro Spiel im Format Prozessname = Name, zum Beispiel FactoryGame = Satisfactory. Der Name wird als Ordner und im Dateinamen verwendet." />
+                                           Text="{l:T Games_CustomNamesHelp}" />
                                 <TextBox Margin="0,12,0,0" Height="110" AcceptsReturn="True" TextWrapping="NoWrap"
                                          VerticalScrollBarVisibility="Auto" Text="{Binding CustomNamesText}" />
                             </StackPanel>
@@ -623,20 +623,20 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Text="Immer als Spiel" Style="{StaticResource Text.SectionTitle}" />
+                                <TextBlock Text="{l:T Section_AlwaysGame}" Style="{StaticResource Text.SectionTitle}" />
                                 <Border Style="{StaticResource Sheet}" Padding="20,16">
                                     <StackPanel>
-                                        <TextBlock Style="{StaticResource Text.Muted}" Text="Ein Prozessname pro Zeile, ohne .exe." />
+                                        <TextBlock Style="{StaticResource Text.Muted}" Text="{l:T Games_AlwaysHelp}" />
                                         <TextBox Margin="0,12,0,0" Height="110" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                                                  Text="{Binding ExtraGamesText}" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                             <StackPanel Grid.Column="2">
-                                <TextBlock Text="Nie als Spiel" Style="{StaticResource Text.SectionTitle}" />
+                                <TextBlock Text="{l:T Section_NeverGame}" Style="{StaticResource Text.SectionTitle}" />
                                 <Border Style="{StaticResource Sheet}" Padding="20,16">
                                     <StackPanel>
-                                        <TextBlock Style="{StaticResource Text.Muted}" Text="Zum Beispiel Programme, die im Vollbild laufen." />
+                                        <TextBlock Style="{StaticResource Text.Muted}" Text="{l:T Games_NeverHelp}" />
                                         <TextBox Margin="0,12,0,0" Height="110" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
                                                  Text="{Binding ExcludedProcessesText}" />
                                     </StackPanel>
@@ -651,48 +651,62 @@
             <TabItem>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Style="{StaticResource Page}">
-                        <TextBlock Text="Allgemein" Style="{StaticResource Text.PageTitle}" />
+                        <TextBlock Text="{l:T Nav_General}" Style="{StaticResource Text.PageTitle}" />
 
-                        <TextBlock Text="Programmstart" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Language}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Mit Windows starten">
+                                <ui:SettingRow Title="{l:T Row_Language}" Description="{l:T Desc_Language}" ShowDivider="False">
+                                    <ComboBox Width="220" ItemsSource="{Binding LanguageOptions}" DisplayMemberPath="Label"
+                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.Language}" />
+                                </ui:SettingRow>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Text="{l:T Section_Startup}" Style="{StaticResource Text.SectionTitle}" />
+                        <Border Style="{StaticResource Sheet}">
+                            <StackPanel>
+                                <ui:SettingRow Title="{l:T Row_StartWithWindows}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.StartWithWindows}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Beim Windows-Start nur im Infobereich" Description="Das Fenster bleibt verborgen, das Replay läuft trotzdem.">
+                                <ui:SettingRow Title="{l:T Row_StartMinimized}" Description="{l:T Desc_StartMinimized}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.StartMinimized}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Schließen lässt ClipRing weiterlaufen" ShowDivider="False"
-                                               Description="Das X verkleinert in den Infobereich. Beenden geht über das Symbol dort.">
+                                <ui:SettingRow Title="{l:T Row_CloseToTray}" ShowDivider="False"
+                                               Description="{l:T Desc_CloseToTray}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CloseToTray}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="FFmpeg und Hardware" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_FfmpegHardware}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
                                 <ui:SettingRow Title="FFmpeg">
                                     <TextBlock Text="{Binding Service.FfmpegText}" Style="{StaticResource Text.Value}" MaxWidth="420" TextAlignment="Right" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Eigener Pfad" Description="Normalerweise leer lassen: ClipRing bringt FFmpeg mit. Nur ausfüllen, um eine andere ffmpeg.exe zu verwenden.">
+                                <ui:SettingRow Title="{l:T Row_GpuEncoders}" Description="{l:T Desc_GpuEncoders}">
+                                    <TextBlock Text="{Binding Service.CapabilitiesText}" Style="{StaticResource Text.Value}" MaxWidth="420"
+                                               TextAlignment="Right" TextWrapping="Wrap" />
+                                </ui:SettingRow>
+                                <ui:SettingRow Title="{l:T Row_CustomPath}" Description="{l:T Desc_CustomPath}">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBox Width="300" Text="{Binding Settings.FfmpegPath}" VerticalAlignment="Center" />
-                                        <Button Content="Auswählen …" Margin="8,0,0,0" Command="{Binding BrowseFfmpegCommand}" />
+                                        <Button Content="{l:T Btn_Browse}" Margin="8,0,0,0" Command="{Binding BrowseFfmpegCommand}" />
                                     </StackPanel>
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Hardware neu erkennen" ShowDivider="False"
-                                               Description="Nach einem Treiber-Update oder Monitorwechsel: sucht FFmpeg, Monitore und Encoder neu.">
-                                    <Button Content="Neu erkennen" Command="{Binding RedetectCommand}" />
+                                <ui:SettingRow Title="{l:T Row_Redetect}" ShowDivider="False"
+                                               Description="{l:T Desc_Redetect}">
+                                    <Button Content="{l:T Btn_Redetect}" Command="{Binding RedetectCommand}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="Fehlersuche" Style="{StaticResource Text.SectionTitle}" />
+                        <TextBlock Text="{l:T Section_Troubleshooting}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Protokoll" Description="Enthält die genauen FFmpeg-Befehle und Fehlermeldungen." ShowDivider="False">
-                                    <Button Content="Protokollordner öffnen" Command="{Binding OpenLogsCommand}" />
+                                <ui:SettingRow Title="{l:T Row_Log}" Description="{l:T Desc_Log}" ShowDivider="False">
+                                    <Button Content="{l:T Btn_OpenLogFolder}" Command="{Binding OpenLogsCommand}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>

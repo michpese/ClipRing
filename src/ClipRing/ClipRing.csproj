@@ -41,6 +41,8 @@
   <ItemGroup>
     <Resource Include="Assets\ClipRing.ico" />
     <EmbeddedResource Include="Games\known_games.json" LogicalName="ClipRing.known_games.json" />
+    <EmbeddedResource Include="Localization\de.json" LogicalName="ClipRing.Strings.de.json" />
+    <EmbeddedResource Include="Localization\en.json" LogicalName="ClipRing.Strings.en.json" />
   </ItemGroup>
 
   <!-- FFmpeg built into ClipRing.exe. build.ps1 passes the gzip-compressed ffmpeg.exe, its SHA-256 and version;

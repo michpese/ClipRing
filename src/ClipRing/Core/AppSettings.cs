@@ -7,6 +7,15 @@ namespace ClipRing.Core;
 /// </summary>
 public sealed class AppSettings : ObservableObject
 {
+    // ---------------------------------------------------------------- General
+    private string _language = "system";
+    /// <summary>"system" (Windows display language), "de" or "en".</summary>
+    public string Language
+    {
+        get => _language;
+        set => Set(ref _language, value is "de" or "en" ? value : "system");
+    }
+
     // ---------------------------------------------------------------- Video
     private int _monitorIndex;
     /// <summary>Position of the monitor in Windows' enumeration (see MonitorInfo.Index).</summary>
@@ -102,16 +111,16 @@ public sealed class AppSettings : ObservableObject
     public bool PlaySoundOnSave { get => _playSoundOnSave; set => Set(ref _playSoundOnSave, value); }
 
     // ---------------------------------------------------------------- Hotkeys
-    private string _hotkeySave = "Strg+Alt+F10";
+    private string _hotkeySave = "Ctrl+Alt+F10";
     public string HotkeySave { get => _hotkeySave; set => Set(ref _hotkeySave, value ?? ""); }
 
-    private string _hotkeySaveShort = "Strg+Alt+F9";
+    private string _hotkeySaveShort = "Ctrl+Alt+F9";
     public string HotkeySaveShort { get => _hotkeySaveShort; set => Set(ref _hotkeySaveShort, value ?? ""); }
 
     private int _shortClipSeconds = 30;
     public int ShortClipSeconds { get => _shortClipSeconds; set => Set(ref _shortClipSeconds, Math.Clamp(value, 5, 600)); }
 
-    private string _hotkeyToggle = "Strg+Alt+F11";
+    private string _hotkeyToggle = "Ctrl+Alt+F11";
     public string HotkeyToggle { get => _hotkeyToggle; set => Set(ref _hotkeyToggle, value ?? ""); }
 
     // ---------------------------------------------------------------- Highlights
@@ -199,9 +208,9 @@ public sealed class AppSettings : ObservableObject
     /// </summary>
     public static readonly Dictionary<string, (string Old, string New)> LegacyHotkeyDefaults = new()
     {
-        [nameof(HotkeySave)] = ("Alt+F10", "Strg+Alt+F10"),
-        [nameof(HotkeySaveShort)] = ("Alt+F9", "Strg+Alt+F9"),
-        [nameof(HotkeyToggle)] = ("Alt+Shift+F10", "Strg+Alt+F11"),
+        [nameof(HotkeySave)] = ("Alt+F10", "Ctrl+Alt+F10"),
+        [nameof(HotkeySaveShort)] = ("Alt+F9", "Ctrl+Alt+F9"),
+        [nameof(HotkeyToggle)] = ("Alt+Shift+F10", "Ctrl+Alt+F11"),
     };
 
     public static readonly HashSet<string> HotkeyProperties = new()

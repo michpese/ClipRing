@@ -183,7 +183,7 @@ public sealed class AudioEngine : IDisposable
             _streamAnchored.Reset();
         }
         if (!_streamAnchored.Wait(TimeSpan.FromSeconds(2)))
-            throw new InvalidOperationException("Der Audio-Mixer reagiert nicht.");
+            throw new InvalidOperationException(Localization.Loc.T("Err_MixerStuck"));
         lock (_outGate) return _streamStartUnix;
     }
 

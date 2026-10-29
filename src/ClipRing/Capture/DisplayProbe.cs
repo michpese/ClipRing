@@ -14,7 +14,7 @@ public sealed record MonitorInfo(int Index, int Width, int Height, string Device
 {
     public string Label => $"Monitor {Index + 1}: {Width} × {Height}" +
                            (RefreshHz > 0 ? $", {RefreshHz} Hz" : "") +
-                           (IsPrimary ? ", Hauptbildschirm" : "");
+                           (IsPrimary ? ", " + Localization.Loc.T("Monitor_Primary") : "");
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using ClipRing.Core;
+using ClipRing.Localization;
 using ClipRing.Native;
 
 namespace ClipRing.Games;
@@ -134,8 +135,8 @@ public sealed partial class GameDetector : IDisposable
             var game = Classify(hwnd, (int)pid, path);
             if (game is not null) game = game with { Window = hwnd };
             ForegroundDescription = game is null
-                ? $"{Path.GetFileName(path)}: kein Spiel"
-                : $"{Path.GetFileName(path)}: {game.DisplayName} (erkannt über {game.Source})";
+                ? Loc.F("Games_ForegroundNoGame", Path.GetFileName(path))
+                : Loc.F("Games_ForegroundGame", Path.GetFileName(path), game.DisplayName, Loc.T("GameSource_" + game.Source));
 
             if (game is not null)
             {
@@ -171,20 +172,20 @@ public sealed partial class GameDetector : IDisposable
         if (NeverGames.Contains(process)) return null;
 
         if (_settings.CustomGameNames.TryGetValue(process, out var custom) && !string.IsNullOrWhiteSpace(custom))
-            return new GameInfo(process, path, custom.Trim(), pid, "eigenen Namen");
+            return new GameInfo(process, path, custom.Trim(), pid, "Custom");
 
         var known = _library.KnownExecutable(exe);
-        if (known is not null) return new GameInfo(process, path, known, pid, "Spieleliste");
+        if (known is not null) return new GameInfo(process, path, known, pid, "List");
 
         bool forced = _settings.ExtraGameProcesses.Any(x => x.Equals(process, StringComparison.OrdinalIgnoreCase));
         var libraryName = _library.LookupByPath(path);
-        if (libraryName is not null) return new GameInfo(process, path, libraryName, pid, "Spielebibliothek");
+        if (libraryName is not null) return new GameInfo(process, path, libraryName, pid, "Library");
 
-        if (forced) return new GameInfo(process, path, NiceName(path), pid, "eigene Liste");
+        if (forced) return new GameInfo(process, path, NiceName(path), pid, "Forced");
 
         if (_settings.DetectFullscreenApps && !DesktopClasses.Contains(Win32.GetClassName(hwnd)) &&
             Win32.IsFullscreenWindow(hwnd))
-            return new GameInfo(process, path, NiceName(path), pid, "Vollbild");
+            return new GameInfo(process, path, NiceName(path), pid, "Fullscreen");
 
         return null;
     }

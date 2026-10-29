@@ -304,7 +304,7 @@ public sealed class ReplayRecorder : IDisposable
         catch (Exception ex) when (!_stopping)
         {
             Log.Error("Fehler beim Lesen des Aufnahme-Streams", ex);
-            RaiseFault("Datenstrom unterbrochen: " + ex.Message);
+            RaiseFault(Localization.Loc.F("Err_StreamBroken", ex.Message));
         }
         catch
         {
@@ -320,7 +320,7 @@ public sealed class ReplayRecorder : IDisposable
         int code = -1;
         try { code = _process?.ExitCode ?? -1; } catch { }
         var tail = ErrorTail();
-        RaiseFault(string.IsNullOrEmpty(tail) ? $"FFmpeg wurde beendet (Code {code})" : tail);
+        RaiseFault(string.IsNullOrEmpty(tail) ? Localization.Loc.F("Err_FfmpegExited", code) : tail);
     }
 
     private void RaiseFault(string message)

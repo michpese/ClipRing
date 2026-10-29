@@ -7,6 +7,8 @@ using ClipRing.Capture;
 using ClipRing.Core;
 using ClipRing.Games;
 using ClipRing.Highlights;
+using ClipRing.Hotkeys;
+using ClipRing.Localization;
 using ClipRing.Native;
 
 namespace ClipRing.Services;
@@ -63,6 +65,19 @@ public sealed class ReplayService : ObservableObject, IDisposable
         _highlights = new HighlightManager(settings);
         _statsTimer = new Timer(_ => UpdateStats(), null, Timeout.Infinite, Timeout.Infinite);
         TotalRamBytes = Win32.TotalPhysicalMemory();
+        Loc.LanguageChanged += OnLanguageChanged;
+    }
+
+    /// <summary>Texts already on screen are re-rendered in the new language.</summary>
+    private void OnLanguageChanged()
+    {
+        foreach (var name in new[]
+                 {
+                     nameof(StateTitle), nameof(StatusText), nameof(FfmpegText), nameof(EncoderText), nameof(OutputText),
+                     nameof(GameText), nameof(Cs2StatusText), nameof(EstimatedRamText), nameof(BufferBytesText),
+                     nameof(CapabilitiesText),
+                 })
+            OnPropertyChanged(name);
     }
 
     // ================================================================ bindable state
@@ -76,18 +91,29 @@ public sealed class ReplayService : ObservableObject, IDisposable
         get => _ffmpeg;
         private set
         {
-            if (Set(ref _ffmpeg, value))
-            {
-                OnPropertyChanged(nameof(FfmpegText));
-                OnPropertyChanged(nameof(EncoderAvailability));
-            }
+            if (Set(ref _ffmpeg, value)) OnPropertyChanged(nameof(FfmpegText));
         }
     }
 
-    public string FfmpegText => _ffmpeg is null ? "Nicht gefunden"
+    public string FfmpegText => _ffmpeg is null ? Loc.T("Ffmpeg_NotFound")
         : EmbeddedFfmpeg.IsEmbeddedPath(_ffmpeg.Path)
-            ? $"Eingebaut, Version {_ffmpeg.Version}"
-            : $"Version {_ffmpeg.Version} in {_ffmpeg.Path}";
+            ? Loc.F("Ffmpeg_Embedded", _ffmpeg.Version)
+            : Loc.F("Ffmpeg_External", _ffmpeg.Version, _ffmpeg.Path);
+
+    private EncoderCapabilities _capabilities = EncoderCapabilities.Unknown(null);
+    /// <summary>Which encoders/codecs this PC supports (after the hardware check).</summary>
+    public EncoderCapabilities Capabilities
+    {
+        get => _capabilities;
+        private set
+        {
+            _capabilities = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CapabilitiesText));
+        }
+    }
+
+    public string CapabilitiesText => _capabilities.Describe();
 
     private IReadOnlyList<MonitorInfo> _monitors = Array.Empty<MonitorInfo>();
     public IReadOnlyList<MonitorInfo> Monitors
@@ -115,25 +141,32 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     public string StateTitle => _state switch
     {
-        ReplayState.Running => "Replay läuft",
-        ReplayState.Starting => "Replay startet",
-        ReplayState.Paused => "Replay pausiert",
-        ReplayState.WaitingForGame => "Wartet auf ein Spiel",
-        ReplayState.Error => "Replay angehalten",
-        _ => "Wird vorbereitet",
+        ReplayState.Running => Loc.T("State_Running"),
+        ReplayState.Starting => Loc.T("State_Starting"),
+        ReplayState.Paused => Loc.T("State_Paused"),
+        ReplayState.WaitingForGame => Loc.T("State_Waiting"),
+        ReplayState.Error => Loc.T("State_Error"),
+        _ => Loc.T("State_Preparing"),
     };
 
-    private string _statusText = "";
-    public string StatusText { get => _statusText; private set => Set(ref _statusText, value); }
+    // Texts on screen are kept as "how to render" so a language switch can redraw them.
+    private Func<string> _status = () => "";
+    public string StatusText => _status();
+
+    private void SetStatus(Func<string> text)
+    {
+        _status = text;
+        OnPropertyChanged(nameof(StatusText));
+    }
 
     private string? _lastError;
     public string? LastError { get => _lastError; private set => Set(ref _lastError, value); }
 
-    private string _encoderText = "–";
-    public string EncoderText { get => _encoderText; private set => Set(ref _encoderText, value); }
+    private Func<string> _encoderText = () => "–";
+    public string EncoderText => _encoderText();
 
-    private string _outputText = "–";
-    public string OutputText { get => _outputText; private set => Set(ref _outputText, value); }
+    private Func<string> _outputText = () => "–";
+    public string OutputText => _outputText();
 
     private double _bufferedSeconds;
     public double BufferedSeconds { get => _bufferedSeconds; private set => Set(ref _bufferedSeconds, value); }
@@ -144,8 +177,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private string _bufferBytesText = "0 MB";
     public string BufferBytesText { get => _bufferBytesText; private set => Set(ref _bufferBytesText, value); }
 
-    private string _gameText = "Kein Spiel im Vordergrund";
-    public string GameText { get => _gameText; private set => Set(ref _gameText, value); }
+    private string? _gameName;
+    public string GameText => _gameName ?? Loc.T("Game_NoneInFront");
 
     private string _foregroundText = "";
     public string ForegroundText { get => _foregroundText; private set => Set(ref _foregroundText, value); }
@@ -156,8 +189,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private float _micPeak;
     public float MicPeak { get => _micPeak; private set => Set(ref _micPeak, value); }
 
-    private string _cs2StatusText = "Aus";
-    public string Cs2StatusText { get => _cs2StatusText; private set => Set(ref _cs2StatusText, value); }
+    private Func<string> _cs2Status = () => Loc.T("Common_Off");
+    public string Cs2StatusText => _cs2Status();
+
+    private void SetCs2Status(Func<string> text)
+    {
+        _cs2Status = text;
+        OnPropertyChanged(nameof(Cs2StatusText));
+    }
 
     private bool _isSaving;
     public bool IsSaving { get => _isSaving; private set => Set(ref _isSaving, value); }
@@ -208,13 +247,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     public long EstimatedRamBytes => PipelineBuilder.EstimateBufferBytes(Settings, EstimatedBitrateKbps);
 
-    public string EstimatedRamText => $"ca. {FormatBytes(EstimatedRamBytes)} Arbeitsspeicher";
+    public string EstimatedRamText => Loc.F("Est_Ram", FormatBytes(EstimatedRamBytes));
 
     public bool RamWarning => TotalRamBytes > 0 && EstimatedRamBytes > (long)(TotalRamBytes * 0.35);
 
     public string BufferLengthText => FormatDuration(Settings.BufferSeconds);
-
-    public Dictionary<EncoderBackend, bool> EncoderAvailability => PipelineSelector.Availability(_ffmpeg, Settings.Codec);
 
     private void NotifyEstimates()
     {
@@ -230,8 +267,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
     }
 
     public static string FormatBytes(long bytes) => bytes >= 1024L * 1024 * 1024
-        ? $"{bytes / (1024.0 * 1024 * 1024):0.0} GB"
-        : $"{bytes / (1024.0 * 1024):0} MB";
+        ? string.Format(Loc.Instance.Culture, "{0:0.0} GB", bytes / (1024.0 * 1024 * 1024))
+        : string.Format(Loc.Instance.Culture, "{0:0} MB", bytes / (1024.0 * 1024));
 
     public static string FormatDuration(double seconds)
     {
@@ -261,34 +298,71 @@ public sealed class ReplayService : ObservableObject, IDisposable
     }
 
     /// <summary>Finds ffmpeg and probes monitors. Returns false (and sets an error) if capture is impossible.</summary>
-    private async Task<bool> DetectEnvironmentAsync()
+    private async Task<bool> DetectEnvironmentAsync(bool forceEncoderCheck = false)
     {
         State = ReplayState.Initializing;
-        StatusText = EmbeddedFfmpeg.IsAvailable ? "Aufnahme wird vorbereitet …" : "FFmpeg wird gesucht …";
+        SetStatus(() => Loc.T(EmbeddedFfmpeg.IsAvailable ? "Status_Preparing" : "Status_SearchingFfmpeg"));
         Ffmpeg = await FfmpegLocator.DetectAsync(Settings.FfmpegPath);
         if (Ffmpeg is null)
         {
-            SetError(EmbeddedFfmpeg.IsAvailable
-                ? "Das eingebaute FFmpeg ließ sich nicht starten. Details stehen im Protokoll; ein Virenscanner kann die Ursache sein."
-                : "Dieser Build enthält kein FFmpeg. Mit build.ps1 ohne -SkipFfmpeg bauen, ffmpeg.exe in den Ordner „ffmpeg“ " +
-                  "neben ClipRing.exe legen oder den Pfad unter „Allgemein“ wählen.");
+            SetError(() => Loc.T(EmbeddedFfmpeg.IsAvailable ? "Err_EmbeddedFfmpeg" : "Err_NoFfmpeg"));
             return false;
         }
-        if (!Ffmpeg.HasFilter("ddagrab") && !Ffmpeg.HasFilter("gfxcapture"))
+        var ffmpeg = Ffmpeg;
+        if (!ffmpeg.HasFilter("ddagrab") && !ffmpeg.HasFilter("gfxcapture"))
         {
-            SetError($"Dieses FFmpeg ({Ffmpeg.Version}) kann den Bildschirm nicht aufnehmen. " +
-                     "Benötigt wird ein Windows-Build ab Version 8.1.");
+            SetError(() => Loc.F("Err_FfmpegCannotCapture", ffmpeg.Version));
             return false;
         }
 
-        StatusText = "Monitore werden erkannt …";
+        SetStatus(() => Loc.T("Status_CheckingEncoders"));
+        Capabilities = await EncoderProbe.GetAsync(ffmpeg, forceEncoderCheck);
+        AdjustToCapabilities();
+
+        SetStatus(() => Loc.T("Status_DetectingMonitors"));
         await RefreshMonitorsAsync();
         if (Monitors.Count == 0)
         {
-            SetError("Kein Monitor kann aufgenommen werden. Läuft eine Remotedesktop-Sitzung oder ist der Bildschirm gesperrt?");
+            SetError(() => Loc.T("Err_NoMonitor"));
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Settings this PC cannot record with (e.g. AV1 without an AV1-capable GPU, or an encoder of another
+    /// vendor) are switched to the nearest working choice before the recording starts.
+    /// </summary>
+    private void AdjustToCapabilities()
+    {
+        var caps = Capabilities;
+        if (!caps.Probed) return;
+        var codec = caps.Fallback(Settings.Codec);
+        bool changed = false;
+        if (codec != Settings.Codec)
+        {
+            Log.Warn($"{PipelineBuilder.CodecName(Settings.Codec)} wird von dieser Hardware nicht unterstützt, verwende {PipelineBuilder.CodecName(codec)}");
+            var from = Settings.Codec;
+            Settings.Codec = codec;
+            Notify?.Invoke(Loc.T("Notify_CodecChangedTitle"),
+                           Loc.F("Notify_CodecChanged", PipelineBuilder.CodecName(from), PipelineBuilder.CodecName(codec)));
+            changed = true;
+        }
+        if (Settings.Encoder != EncoderBackend.Auto && !caps.Usable(Settings.Encoder, Settings.Codec))
+        {
+            Log.Warn($"{PipelineBuilder.BackendName(Settings.Encoder)} ist auf diesem PC nicht nutzbar, verwende Automatisch");
+            Settings.Encoder = EncoderBackend.Auto;
+            changed = true;
+        }
+        // The caller starts the recording right after this; no extra restart from the setting changes.
+        if (changed)
+        {
+            lock (_timerGate)
+            {
+                _restartTimer?.Dispose();
+                _restartTimer = null;
+            }
+        }
     }
 
     private async Task RefreshMonitorsAsync()
@@ -339,19 +413,19 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
         PipelineSelector.InvalidateCache(Settings);
         ResetAudioFallback();
-        if (await DetectEnvironmentAsync())
+        if (await DetectEnvironmentAsync(forceEncoderCheck: true))
         {
             ApplyHighlights();
             await RestartAsync("Neu erkennen");
         }
     }
 
-    private void SetError(string message)
+    private void SetError(Func<string> message)
     {
-        LastError = message;
-        StatusText = message;
+        LastError = message();
+        SetStatus(message);
         State = ReplayState.Error;
-        Log.Warn(message);
+        Log.Warn(LastError);
     }
 
     private void StopRecorder()
@@ -377,30 +451,31 @@ public sealed class ReplayService : ObservableObject, IDisposable
             if (_userPaused)
             {
                 State = ReplayState.Paused;
-                StatusText = "Mit dem Hotkey oder hier wieder starten.";
+                SetStatus(() => Loc.T("Status_PausedHint"));
                 return;
             }
             if (Settings.OnlyWhenGameRunning && !_games.IsGameRunning)
             {
                 State = ReplayState.WaitingForGame;
-                StatusText = "Die Aufnahme beginnt, sobald ein Spiel erkannt wird.";
+                SetStatus(() => Loc.T("Status_WaitingForGame"));
                 return;
             }
 
             var monitor = SelectedMonitor;
             if (monitor is null)
             {
-                SetError("Kein Monitor verfügbar.");
+                SetError(() => Loc.T("Err_NoMonitorAvailable"));
                 return;
             }
 
             Log.Info($"Starte Replay ({reason})");
             State = ReplayState.Starting;
-            StatusText = "Encoder wird ausgewählt …";
-            var pipeline = await PipelineSelector.SelectAsync(Ffmpeg, Settings, monitor, msg => StatusText = msg, CancellationToken.None);
+            SetStatus(() => Loc.T("Status_SelectingEncoder"));
+            var pipeline = await PipelineSelector.SelectAsync(Ffmpeg, Settings, monitor, Capabilities,
+                                                              msg => SetStatus(() => msg), CancellationToken.None);
             if (pipeline is null)
             {
-                SetError("Kein Encoder hat den Test bestanden. Prüfe Grafiktreiber und FFmpeg-Build; Details stehen im Protokoll.");
+                SetError(() => Loc.T("Err_NoEncoder"));
                 return;
             }
             ScheduleSettingsSave();
@@ -439,20 +514,25 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 _recorder = null;
                 _audio.DetachOutput();
                 recorder.Dispose();
-                SetError("FFmpeg konnte nicht gestartet werden: " + ex.Message);
+                SetError(() => Loc.F("Err_FfmpegStart", ex.Message));
                 return;
             }
 
-            EncoderText = $"{pipeline.EncoderLabel}, {pipeline.PathLabel}, {pipeline.SourceLabel}" +
-                          (window != 0 ? " (Spielfenster)" : "");
-            OutputText = $"{pipeline.OutWidth} × {pipeline.OutHeight}, {Settings.Fps} fps, {pipeline.BitrateKbps / 1000.0:0.#} Mbit/s";
-            StatusText = "Aufnahme startet …";
+            bool gameWindow = window != 0;
+            int fps = Settings.Fps;
+            _encoderText = () => $"{pipeline.EncoderLabel}, {pipeline.PathLabel}, {pipeline.SourceLabel}" +
+                                 (gameWindow ? " (" + Loc.T("Opt_GameWindow") + ")" : "");
+            _outputText = () => string.Format(Loc.Instance.Culture, "{0} × {1}, {2} fps, {3:0.#} Mbit/s",
+                                              pipeline.OutWidth, pipeline.OutHeight, fps, pipeline.BitrateKbps / 1000.0);
+            OnPropertyChanged(nameof(EncoderText));
+            OnPropertyChanged(nameof(OutputText));
+            SetStatus(() => Loc.T("Status_RecordingStarts"));
             LastError = null;
         }
         catch (Exception ex)
         {
             Log.Error("Replay konnte nicht gestartet werden", ex);
-            SetError("Replay konnte nicht gestartet werden: " + ex.Message);
+            SetError(() => Loc.F("Err_ReplayStart", ex.Message));
         }
         finally
         {
@@ -465,9 +545,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (!ReferenceEquals(recorder, _recorder)) return;
         if (_pipelineHasAudio) _noDataWithAudio = 0;
         State = ReplayState.Running;
-        StatusText = _audioFallback
-            ? "Läuft ohne Ton: Mit Tonspur hat FFmpeg keine Daten geliefert. Details stehen im Protokoll."
-            : $"Hotkey {Settings.HotkeySave} speichert die letzten {FormatDuration(Settings.BufferSeconds)}.";
+        bool fallback = _audioFallback;
+        SetStatus(() => fallback
+            ? Loc.T("Status_RunningWithoutAudio")
+            : Loc.F("Status_Running", HotkeyBinding.DisplayText(Settings.HotkeySave), FormatDuration(Settings.BufferSeconds)));
         Log.Info($"Replay läuft ({(_pipelineHasAudio ? "mit" : "ohne")} Ton)");
     }
 
@@ -484,10 +565,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
         {
             _audioFallback = true;
             Log.Warn("Zweimal keine Daten mit Tonspur: nächster Versuch ohne Ton, um die Ursache einzugrenzen");
-            Notify?.Invoke("Aufnahme vorerst ohne Ton",
-                           "Mit Tonspur hat FFmpeg keine Daten geliefert. Details stehen im Protokoll.");
+            Notify?.Invoke(Loc.T("Notify_NoAudioTitle"), Loc.T("Status_RunningWithoutAudio"));
         }
-        OnRecorderFaulted(recorder, $"FFmpeg hat nach {NoDataTimeout.TotalSeconds:0} s noch keine Daten geliefert");
+        OnRecorderFaulted(recorder, Loc.F("Err_NoData", NoDataTimeout.TotalSeconds));
     }
 
     private DateTime _lowFpsSinceUtc = DateTime.MinValue;
@@ -517,16 +597,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
         _slowEncoderWarnedFor = recorder;
         _lowFpsSinceUtc = DateTime.MinValue;
         int hz = SelectedMonitor?.RefreshHz ?? 0;
-        string message = hz > 0 && hz < Settings.Fps * 0.95
-            ? $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an: der Monitor läuft mit {hz} Hz, und mehr Bilder " +
-              "liefert Windows nicht. In den Windows-Anzeigeeinstellungen die Bildwiederholrate erhöhen oder weniger fps wählen."
-            : $"Es kommen nur {fps:0} von {Settings.Fps} Bildern pro Sekunde an. Entweder läuft das Spiel selbst langsamer, " +
-              "oder die Grafikkarte kommt nicht mit: dann Encoder-Tempo „Schnell“, weniger fps oder eine kleinere Auflösung wählen. " +
-              "Läuft gleichzeitig NVIDIA Instant Replay, teilen sich beide den Encoder.";
+        int target = Settings.Fps;
+        bool monitorLimit = hz > 0 && hz < target * 0.95;
         Log.Warn($"Zu wenige Bilder: {fps:0.0} fps statt {Settings.Fps} ({_pipeline?.EncoderLabel}, {_pipeline?.SourceLabel}, " +
                  $"{Settings.Speed}, {_pipeline?.OutWidth}x{_pipeline?.OutHeight}, Monitor {(hz > 0 ? $"{hz} Hz" : "Hz unbekannt")})");
-        StatusText = message;
-        Notify?.Invoke("Aufnahme ruckelt", $"Nur {fps:0} von {Settings.Fps} fps. Details auf der Übersicht.");
+        SetStatus(() => monitorLimit
+            ? Loc.F("Status_FewFramesMonitor", fps, target, hz)
+            : Loc.F("Status_FewFrames", fps, target));
+        Notify?.Invoke(Loc.T("Notify_StutterTitle"), Loc.F("Notify_Stutter", fps, target));
     }
 
     private void ResetAudioFallback()
@@ -560,7 +638,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         Log.Warn($"Aufnahme abgebrochen ({message}), neuer Versuch in {delay.TotalSeconds:0}s");
         LastError = message;
         State = ReplayState.Error;
-        StatusText = $"Aufnahme unterbrochen, neuer Versuch in {delay.TotalSeconds:0} s. Ursache: {message}";
+        SetStatus(() => Loc.F("Status_Interrupted", delay.TotalSeconds, message));
         ScheduleRestart("Fehler", delay, reprobe: true);
     }
 
@@ -590,8 +668,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         _userPaused = !_userPaused;
         OnPropertyChanged(nameof(IsPaused));
-        Notify?.Invoke(_userPaused ? "Replay pausiert" : "Replay läuft wieder",
-                       _userPaused ? "Es wird nichts aufgezeichnet." : "Der Puffer füllt sich neu.");
+        Notify?.Invoke(Loc.T(_userPaused ? "Notify_PausedTitle" : "Notify_ResumedTitle"),
+                       Loc.T(_userPaused ? "Notify_Paused" : "Notify_Resumed"));
         ScheduleRestart(_userPaused ? "Pause" : "Fortsetzen", TimeSpan.Zero, reprobe: false);
     }
 
@@ -606,7 +684,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (ffmpeg is null || recorder is null || !recorder.HasProducedData)
         {
             Log.Warn($"Clip nicht gespeichert ({reason}{(tag is null ? "" : ", " + tag)}): Replay läuft nicht (Zustand: {StateTitle})");
-            Notify?.Invoke("Kein Clip gespeichert", "Das Replay läuft gerade nicht.");
+            Notify?.Invoke(Loc.T("Notify_NoClipTitle"), Loc.T("Notify_NoClipNotRunning"));
             if (manual && Settings.PlaySoundOnSave) Sounds.PlayFailed();
             return null;
         }
@@ -624,14 +702,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 ClipSaved?.Invoke(clip);
             });
             if (Settings.NotifyOnSave)
-                Notify?.Invoke("Clip gespeichert", $"{clip.Game}: {clip.DurationText} min, {clip.SizeText}");
+                Notify?.Invoke(Loc.T("Notify_ClipSavedTitle"), $"{clip.Game}: {clip.DurationText} min, {clip.SizeText}");
             if (manual && Settings.PlaySoundOnSave) Sounds.PlaySaved();
             return clip;
         }
         catch (Exception ex)
         {
             Log.Error("Clip konnte nicht gespeichert werden", ex);
-            Notify?.Invoke("Clip nicht gespeichert", ex.Message);
+            Notify?.Invoke(Loc.T("Notify_ClipFailedTitle"), ex.Message);
             if (manual && Settings.PlaySoundOnSave) Sounds.PlayFailed();
             return null;
         }
@@ -700,7 +778,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (AppSettings.PipelineProperties.Contains(name))
         {
             NotifyEstimates();
-            if (name == nameof(AppSettings.Codec)) OnPropertyChanged(nameof(EncoderAvailability));
+            // An encoder chosen by hand that cannot do the new codec: back to automatic.
+            if (name == nameof(AppSettings.Codec) && Settings.Encoder != EncoderBackend.Auto &&
+                !Capabilities.Usable(Settings.Encoder, Settings.Codec))
+                Settings.Encoder = EncoderBackend.Auto;
             ScheduleRestart(name, RestartDebounce, reprobe: false);
             return;
         }
@@ -772,7 +853,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     private void OnGameChanged(GameInfo? game)
     {
-        GameText = game?.DisplayName ?? "Kein Spiel im Vordergrund";
+        _gameName = game?.DisplayName;
+        OnPropertyChanged(nameof(GameText));
         if (game is not null && Settings.OnlyWhenGameRunning && State == ReplayState.WaitingForGame)
         {
             ScheduleRestart("Spiel erkannt", TimeSpan.FromMilliseconds(500), reprobe: false);
@@ -816,17 +898,34 @@ public sealed class ReplayService : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                Cs2StatusText = $"Port {Settings.Cs2Port} ist belegt ({ex.Message}). Wähle einen anderen Port.";
+                int port = Settings.Cs2Port;
+                SetCs2Status(() => Loc.F("Cs2_PortBusy", port, ex.Message));
                 Log.Warn("CS2-GSI-Empfänger: " + ex.Message);
             }
         }
         else
         {
-            Cs2StatusText = "Aus";
+            SetCs2Status(() => Loc.T("Common_Off"));
         }
     }
 
     private string? _cs2IgnoredMode;
+
+    private string DescribeCs2(Cs2GameStateServer cs2)
+    {
+        var last = cs2.LastMessageUtc;
+        if (last == DateTime.MinValue) return Loc.T("Cs2_Ready");
+        if (DateTime.UtcNow - last >= TimeSpan.FromSeconds(45))
+            return Loc.F("Cs2_LastData", (DateTime.UtcNow - last).TotalMinutes);
+        string text = Loc.T("Cs2_Connected");
+        if (!string.IsNullOrEmpty(cs2.LastMap)) text += ", " + cs2.LastMap;
+        if (cs2.LastMode is not null)
+        {
+            text += ", " + Cs2GameStateServer.ModeName(cs2.LastMode);
+            if (!Cs2ModeAllowed(cs2.LastMode)) text += " " + Loc.T("Cs2_NoHighlights");
+        }
+        return text;
+    }
 
     private bool Cs2ModeAllowed(string? mode) => Settings.Cs2Modes switch
     {
@@ -854,17 +953,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             CheckRecorderWatchdog();
             CheckEncoderSpeed();
 
-            if (_cs2 is not null)
-            {
-                var last = _cs2.LastMessageUtc;
-                Cs2StatusText = last == DateTime.MinValue
-                    ? "Bereit. Warte auf Daten von CS2 (nach dem Einrichten das Spiel neu starten)."
-                    : DateTime.UtcNow - last < TimeSpan.FromSeconds(45)
-                        ? $"Verbunden{(string.IsNullOrEmpty(_cs2.LastMap) ? "" : $", {_cs2.LastMap}")}" +
-                          (_cs2.LastMode is null ? "" :
-                              $", {Cs2GameStateServer.ModeName(_cs2.LastMode)}{(Cs2ModeAllowed(_cs2.LastMode) ? "" : " (keine Highlights)")}")
-                        : $"Letzte Daten vor {(DateTime.UtcNow - last).TotalMinutes:0} min";
-            }
+            if (_cs2 is { } cs2) SetCs2Status(() => DescribeCs2(cs2));
 
             // "Only while a game runs": stop 15 s after the game process ended.
             if (Settings.OnlyWhenGameRunning && (State == ReplayState.Running || State == ReplayState.Starting))
