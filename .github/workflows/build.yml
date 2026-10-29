@@ -100,8 +100,13 @@ jobs:
         run: |
           $zip = "dist/ClipRing-${{ github.ref_name }}-win-x64.zip"
           $notes = ".github/release-notes/${{ github.ref_name }}.md"
-          if (Test-Path $notes) {
-            gh release create "${{ github.ref_name }}" $zip --title "ClipRing ${{ github.ref_name }}" --notes-file $notes
-          } else {
-            gh release create "${{ github.ref_name }}" $zip --title "ClipRing ${{ github.ref_name }}" --generate-notes
+          $text = if (Test-Path $notes) { Get-Content $notes -Raw } else { '' }
+          # Where the sources of the bundled FFmpeg are (GPL), from the build itself.
+          $source = 'dist/ClipRing/FFMPEG-SOURCE.txt'
+          if (Test-Path $source) {
+            $text += "`n### FFmpeg`n`n" + (((Get-Content $source) | Where-Object { $_ }) -join "  `n") + "`n"
           }
+          $out = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content $out $text -Encoding UTF8
+          $extra = if (Test-Path $notes) { @() } else { @('--generate-notes') }
+          gh release create "${{ github.ref_name }}" $zip --title "ClipRing ${{ github.ref_name }}" --notes-file $out @extra

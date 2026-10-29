@@ -43,6 +43,8 @@ Write-Host ($sdks -join "`n")
 $ffCache = Join-Path $PSScriptRoot '.cache\ffmpeg'
 $ffExe = Join-Path $ffCache 'ffmpeg.exe'
 $ffLicense = Join-Path $ffCache 'FFMPEG-LICENSE.txt'
+$ffSourceInfo = Join-Path $ffCache 'source.json'
+$ffVersion = $null
 $embedArgs = @()
 
 if ($SkipFfmpeg) {
@@ -87,6 +89,17 @@ else {
         }
         if (-not $asset) { throw 'Kein passender FFmpeg-Build gefunden. Bitte manuell herunterladen (siehe README).' }
 
+        # Which BtbN build-script commit produced this binary: needed to point to the exact sources (GPL).
+        $btbnCommit = $null
+        try {
+            $ref = Invoke-RestMethod "https://api.github.com/repos/BtbN/FFmpeg-Builds/git/ref/tags/$($release.tag_name)" -Headers $headers
+            $btbnCommit = $ref.object.sha
+            if ($ref.object.type -eq 'tag') {
+                $btbnCommit = (Invoke-RestMethod $ref.object.url -Headers $headers).object.sha
+            }
+        }
+        catch { Write-Warning "Commit des FFmpeg-Builds nicht ermittelbar: $_" }
+
         $temp = Join-Path ([IO.Path]::GetTempPath()) ("cliprings-ffmpeg-" + [guid]::NewGuid())
         New-Item -ItemType Directory -Path $temp | Out-Null
         try {
@@ -99,6 +112,8 @@ else {
             Copy-Item $bin.FullName $ffExe
             $license = Get-ChildItem $temp -Recurse -Filter 'LICENSE*' | Select-Object -First 1
             if ($license) { Copy-Item $license.FullName $ffLicense }
+            @{ asset = $asset.name; btbnCommit = $btbnCommit; downloaded = (Get-Date).ToString('yyyy-MM-dd') } |
+                ConvertTo-Json | Set-Content $ffSourceInfo -Encoding UTF8
         }
         finally {
             Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
@@ -169,6 +184,26 @@ if (-not $SkipFfmpeg) {
     $oldDir = Join-Path $Output 'ffmpeg'
     if (Test-Path $oldDir) { Remove-Item $oldDir -Recurse -Force }
     if (Test-Path $ffLicense) { Copy-Item $ffLicense (Join-Path $Output 'FFMPEG-LICENSE.txt') -Force }
+
+    # Where the exact FFmpeg sources are (GPL): FFmpeg commit from the version string, BtbN build scripts
+    # (they pin the versions of all libraries in the build).
+    $source = if (Test-Path $ffSourceInfo) { Get-Content $ffSourceInfo -Raw | ConvertFrom-Json } else { $null }
+    $commit = if ($ffVersion -match '-g([0-9a-f]{7,40})') { $Matches[1] } else { $null }
+    $lines = @(
+        'ClipRing includes FFmpeg, unchanged, as a separate program under the GNU GPL v3.',
+        'ClipRing enthält FFmpeg unverändert als eigenes Programm unter der GNU GPL v3.',
+        '',
+        "FFmpeg version: $ffVersion"
+    )
+    if ($commit) { $lines += "FFmpeg source code: https://github.com/FFmpeg/FFmpeg/tree/$commit" }
+    else { $lines += 'FFmpeg source code: https://ffmpeg.org/download.html' }
+    if ($source -and $source.btbnCommit) {
+        $lines += "Build scripts with the exact versions of all included libraries: https://github.com/BtbN/FFmpeg-Builds/tree/$($source.btbnCommit)"
+    }
+    else { $lines += 'Build scripts with the versions of all included libraries: https://github.com/BtbN/FFmpeg-Builds' }
+    if ($source -and $source.asset) { $lines += "Binary: $($source.asset) (BtbN/FFmpeg-Builds)" }
+    $lines += 'License: FFMPEG-LICENSE.txt'
+    $lines | Set-Content (Join-Path $Output 'FFMPEG-SOURCE.txt') -Encoding UTF8
 }
 
 $size = (Get-Item (Join-Path $Output 'ClipRing.exe')).Length / 1MB

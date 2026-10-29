@@ -8,6 +8,8 @@
 
 Es funktioniert wie **NVIDIA ShadowPlay (Instant Replay)** oder **AMD ReLive**, ist aber nicht an eine Grafikkartenmarke gebunden und quelloffen. ClipRing ist für **kompetitive Spiele** gemacht: In Counter-Strike 2 speichert es deine Multi-Kills automatisch.
 
+> **Frühe Version (0.1).** ClipRing funktioniert, wurde bisher aber vor allem auf einem PC mit NVIDIA-Grafikkarte und Counter-Strike 2 getestet. Klappt etwas auf deinem System nicht, eröffne bitte ein [Issue](https://github.com/michpese/ClipRing/issues) und häng das Protokoll an (siehe [Tipps](#tipps)).
+
 ## Was es kann
 
 - **Instant Replay:** hält die letzten 15 Sekunden bis 10 Minuten bereit. Ein Hotkey speichert alles, ein zweiter nur die letzten Sekunden.
@@ -91,4 +93,4 @@ Falls PowerShell das Skript blockiert: `powershell -ExecutionPolicy Bypass -File
 
 ## Lizenz
 
-ClipRing steht unter der [GNU General Public License v3.0](LICENSE). Das eingebaute FFmpeg ist ebenfalls GPL (Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), Quellcode unter [ffmpeg.org](https://ffmpeg.org/download.html)); seine Lizenz liegt als `FFMPEG-LICENSE.txt` bei. [NAudio](https://github.com/naudio/NAudio) steht unter der MIT-Lizenz.
+ClipRing steht unter der [GNU General Public License v3.0](LICENSE). Das eingebaute FFmpeg ist ebenfalls GPL und unverändert enthalten (Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)). Jeder Download enthält seine Lizenz (`FFMPEG-LICENSE.txt`), und die Release-Notizen verlinken den genauen Quellcode der enthaltenen Version (ab 0.1.1 auch als `FFMPEG-SOURCE.txt` im Download). [NAudio](https://github.com/naudio/NAudio) steht unter der MIT-Lizenz.
