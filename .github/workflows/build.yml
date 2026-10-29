@@ -49,6 +49,13 @@ jobs:
           if ($p.ExitCode -eq 0) { "::notice title=Oberfläche::$summary" }
           else { "::error title=Oberfläche::Exit $($p.ExitCode): $summary"; exit 1 }
 
+      - name: FFmpeg-Quellangaben anzeigen
+        shell: pwsh
+        run: |
+          $file = 'dist/ClipRing/FFMPEG-SOURCE.txt'
+          if (-not (Test-Path $file)) { "::error title=FFmpeg-Quellen::FFMPEG-SOURCE.txt fehlt"; exit 1 }
+          "::notice title=FFmpeg-Quellen::" + (((Get-Content $file) | Where-Object { $_ }) -join ' | ')
+
       - name: Eingebautes FFmpeg prüfen (entpacken, Prüfsumme, Start)
         shell: pwsh
         timeout-minutes: 5
