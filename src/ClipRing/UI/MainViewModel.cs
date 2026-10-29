@@ -132,6 +132,26 @@ public sealed class MainViewModel : ObservableObject
         });
         RebuildCodecAndEncoderOptions();
         RebuildMonitorOptions();
+        ApplyMonitorLimits();
+    }
+
+    /// <summary>
+    /// Frame rates above the monitor's refresh rate and resolutions above its size can't be recorded
+    /// (Windows delivers no more frames, and ClipRing only scales down): those entries are greyed out.
+    /// </summary>
+    private void ApplyMonitorLimits()
+    {
+        var monitor = Service.SelectedMonitor;
+        foreach (var option in FpsOptions)
+            option.IsEnabled = monitor is null || monitor.RefreshHz <= 0 || option.Value <= monitor.RefreshHz + 1;
+        foreach (var option in ResolutionOptions)
+        {
+            int height = option.Value switch
+            {
+                ResolutionMode.P2160 => 2160, ResolutionMode.P1440 => 1440, ResolutionMode.P1080 => 1080, ResolutionMode.P720 => 720, _ => 0,
+            };
+            option.IsEnabled = monitor is null || height == 0 || height <= monitor.Height;
+        }
     }
 
     /// <summary>
@@ -330,7 +350,12 @@ public sealed class MainViewModel : ObservableObject
                 App.Current.Dispatcher.InvokeAsync(RebuildCodecAndEncoderOptions);
                 break;
             case nameof(ReplayService.Monitors):
-                App.Current.Dispatcher.InvokeAsync(RebuildMonitorOptions);
+            case nameof(ReplayService.SelectedMonitor):
+                App.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    RebuildMonitorOptions();
+                    ApplyMonitorLimits();
+                });
                 break;
             case nameof(ReplayService.IsPaused):
                 OnPropertyChanged(nameof(PauseButtonText));
