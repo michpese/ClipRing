@@ -80,7 +80,7 @@ public static partial class FfmpegLocator
         return null;
     }
 
-    private static async Task<FfmpegInfo?> QueryAsync(string exe, CancellationToken ct)
+    public static async Task<FfmpegInfo?> QueryAsync(string exe, CancellationToken ct = default)
     {
         var timeout = TimeSpan.FromSeconds(10);
         var version = await ProcessRunner.RunAsync(exe, new[] { "-hide_banner", "-version" }, timeout, ct);

@@ -36,6 +36,18 @@ jobs:
         shell: pwsh
         run: ./.github/scripts/report-diagnostics.ps1 -LogFile build.log
 
+      - name: Eingebautes FFmpeg prüfen (entpacken, Prüfsumme, Start)
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'selftest.txt'
+          $p = Start-Process dist/ClipRing/ClipRing.exe -ArgumentList '--selftest-ffmpeg', "`"$report`"" -Wait -PassThru
+          $text = if (Test-Path $report) { Get-Content $report -Raw } else { '(kein Bericht)' }
+          Write-Host $text
+          $summary = (($text -split "`r?`n") | Where-Object { $_ }) -join ', '
+          if ($p.ExitCode -eq 0) { "::notice title=Eingebautes FFmpeg::$summary" }
+          else { "::error title=Eingebautes FFmpeg::Exit $($p.ExitCode): $summary"; exit 1 }
+
       - name: Ergebnis hochladen
         uses: actions/upload-artifact@v6
         with:

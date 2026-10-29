@@ -24,8 +24,53 @@ public partial class App : Application
 
     public static bool IsExiting { get; private set; }
 
+    private static async Task<int> RunFfmpegSelfTestAsync(string reportPath)
+    {
+        var lines = new List<string>();
+        int code = 1;
+        try
+        {
+            lines.Add($"embedded={Capture.EmbeddedFfmpeg.IsAvailable}");
+            lines.Add($"embeddedVersion={Capture.EmbeddedFfmpeg.Version ?? "-"}");
+            var path = await Capture.EmbeddedFfmpeg.EnsureExtractedAsync();
+            lines.Add($"path={path ?? "-"}");
+            // Second call must find the unpacked copy and accept its checksum.
+            var again = await Capture.EmbeddedFfmpeg.EnsureExtractedAsync();
+            lines.Add($"reuse={(again is not null && again == path)}");
+            if (path is not null)
+            {
+                var info = await Capture.FfmpegLocator.QueryAsync(path);
+                lines.Add($"version={info?.Version ?? "-"}");
+                lines.Add($"encoders={info?.Encoders.Count ?? 0}");
+                lines.Add($"gfxcapture={info?.HasFilter("gfxcapture") ?? false}");
+                lines.Add($"ddagrab={info?.HasFilter("ddagrab") ?? false}");
+                lines.Add($"av1_nvenc={info?.HasEncoder("av1_nvenc") ?? false}");
+                if (info is not null && again == path && (info.HasFilter("gfxcapture") || info.HasFilter("ddagrab"))) code = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            lines.Add("error=" + ex.ToString().ReplaceLineEndings(" | "));
+        }
+        lines.Add($"result={(code == 0 ? "ok" : "failed")}");
+        try { File.WriteAllLines(reportPath, lines); } catch { /* exit code still tells */ }
+        return code;
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Build check (CI): unpack and query the embedded FFmpeg, write a report, exit with 0/1.
+        int selfTest = Array.IndexOf(e.Args, "--selftest-ffmpeg");
+        if (selfTest >= 0)
+        {
+            IsExiting = true;
+            string report = selfTest + 1 < e.Args.Length
+                ? e.Args[selfTest + 1]
+                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cliprings-selftest.txt");
+            Shutdown(Task.Run(() => RunFfmpegSelfTestAsync(report)).GetAwaiter().GetResult());
+            return;
+        }
+
         // Single instance: a second start just brings the running one to the front.
         _mutex = new Mutex(true, MutexName, out bool firstInstance);
         if (!firstInstance)
