@@ -55,13 +55,11 @@ public sealed class ClipSaver
 
             try
             {
-                bool done = false;
-                if (settings.RemuxToStandardMp4)
-                    done = await RemuxAsync(ffmpeg, snapshot, temp, ct).ConfigureAwait(false);
-
+                // Standard MP4 with the index at the front (-c copy, no re-encoding), which every editor opens.
+                bool done = await RemuxAsync(ffmpeg, snapshot, temp, ct).ConfigureAwait(false);
                 if (!done)
                 {
-                    // Fallback: the fragmented MP4 as-is (plays everywhere, some editors dislike it).
+                    // Fallback: the fragmented MP4 from the RAM buffer as-is (plays everywhere, some editors dislike it).
                     await using var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20, useAsync: true);
                     await snapshot.WriteToAsync(fs, ct).ConfigureAwait(false);
                 }

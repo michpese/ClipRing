@@ -461,16 +461,12 @@
                                 <ui:SettingRow Title="Unterordner je Spiel" Description="Legt für jedes erkannte Spiel einen eigenen Ordner an, z. B. Counter-Strike 2.">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.GameSubfolders}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Dateiname" Description="Platzhalter: {game}, {date}, {time} und {tag} (z. B. 3K bei Highlights).">
+                                <ui:SettingRow Title="Dateiname" ShowDivider="False" Description="Platzhalter: {game}, {date}, {time} und {tag} (z. B. 3K bei Highlights).">
                                     <StackPanel>
                                         <TextBox Width="300" Text="{Binding Settings.FileNameTemplate, UpdateSourceTrigger=PropertyChanged}" />
                                         <TextBlock Style="{StaticResource Text.Faint}" Margin="2,6,0,0" MaxWidth="300" TextWrapping="NoWrap"
                                                    TextTrimming="CharacterEllipsis" Text="{Binding FileNamePreview}" />
                                     </StackPanel>
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Als Standard-MP4 speichern" ShowDivider="False"
-                                               Description="Schreibt den Clip ohne Neukodierung in ein normales MP4, das jedes Schnittprogramm öffnet. Aus: schneller, aber fragmentiertes MP4.">
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.RemuxToStandardMp4}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>

@@ -94,8 +94,6 @@ public sealed class AppSettings : ObservableObject
     private string _fileNameTemplate = "{game}_{date}_{time}";
     public string FileNameTemplate { get => _fileNameTemplate; set => Set(ref _fileNameTemplate, string.IsNullOrWhiteSpace(value) ? "{game}_{date}_{time}" : value); }
 
-    private bool _remuxToStandardMp4 = true;
-    public bool RemuxToStandardMp4 { get => _remuxToStandardMp4; set => Set(ref _remuxToStandardMp4, value); }
 
     private bool _notifyOnSave = true;
     public bool NotifyOnSave { get => _notifyOnSave; set => Set(ref _notifyOnSave, value); }

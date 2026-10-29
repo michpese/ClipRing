@@ -90,8 +90,7 @@ public sealed class MainViewModel : ObservableObject
         new(VideoCodec.Av1, "AV1 (am kleinsten, neuere GPUs)"),
     };
 
-    private IReadOnlyList<Option<EncoderBackend>> _encoderOptions = Array.Empty<Option<EncoderBackend>>();
-    public IReadOnlyList<Option<EncoderBackend>> EncoderOptions { get => _encoderOptions; private set => Set(ref _encoderOptions, value); }
+    public LiveOptions<EncoderBackend> EncoderOptions { get; } = new();
 
     public IReadOnlyList<Option<QualityPreset>> QualityOptions { get; } = new Option<QualityPreset>[]
     {
@@ -135,8 +134,7 @@ public sealed class MainViewModel : ObservableObject
         new(1, "Jeder Kill"), new(2, "Ab 2 Kills"), new(3, "Ab 3 Kills"), new(4, "Ab 4 Kills"), new(5, "Nur Ace"),
     };
 
-    private IReadOnlyList<Option<int>> _monitorOptions = Array.Empty<Option<int>>();
-    public IReadOnlyList<Option<int>> MonitorOptions { get => _monitorOptions; private set => Set(ref _monitorOptions, value); }
+    public LiveOptions<int> MonitorOptions { get; } = new();
 
     private IReadOnlyList<AudioDeviceOption> _outputDevices = Array.Empty<AudioDeviceOption>();
     public IReadOnlyList<AudioDeviceOption> OutputDevices { get => _outputDevices; private set => Set(ref _outputDevices, value); }
@@ -161,15 +159,15 @@ public sealed class MainViewModel : ObservableObject
                 ? $"{name} (nicht im FFmpeg-Build)"
                 : name;
         }
-        EncoderOptions = new[]
+        EncoderOptions.Update(new[]
         {
-            new Option<EncoderBackend>(EncoderBackend.Auto, "Automatisch (empfohlen)"),
-            new Option<EncoderBackend>(EncoderBackend.Nvenc, Label(EncoderBackend.Nvenc)),
-            new Option<EncoderBackend>(EncoderBackend.Amf, Label(EncoderBackend.Amf)),
-            new Option<EncoderBackend>(EncoderBackend.Qsv, Label(EncoderBackend.Qsv)),
-            new Option<EncoderBackend>(EncoderBackend.D3D12, Label(EncoderBackend.D3D12)),
-            new Option<EncoderBackend>(EncoderBackend.Software, Label(EncoderBackend.Software)),
-        };
+            (EncoderBackend.Auto, "Automatisch (empfohlen)"),
+            (EncoderBackend.Nvenc, Label(EncoderBackend.Nvenc)),
+            (EncoderBackend.Amf, Label(EncoderBackend.Amf)),
+            (EncoderBackend.Qsv, Label(EncoderBackend.Qsv)),
+            (EncoderBackend.D3D12, Label(EncoderBackend.D3D12)),
+            (EncoderBackend.Software, Label(EncoderBackend.Software)),
+        });
     }
 
     private void RebuildMonitorOptions()
@@ -177,10 +175,11 @@ public sealed class MainViewModel : ObservableObject
         var monitors = Service.Monitors;
         if (monitors.Count == 0)
         {
-            MonitorOptions = new[] { new Option<int>(Settings.MonitorIndex, $"Monitor {Settings.MonitorIndex + 1}") };
+            // Until detection finishes: a placeholder for the saved choice, replaced in place afterwards.
+            MonitorOptions.Update(new[] { (Settings.MonitorIndex, $"Monitor {Settings.MonitorIndex + 1} (wird erkannt …)") });
             return;
         }
-        MonitorOptions = monitors.Select(m => new Option<int>(m.Index, m.Label)).ToArray();
+        MonitorOptions.Update(monitors.Select(m => (m.Index, m.Label)));
     }
 
     private void RefreshDevices()
