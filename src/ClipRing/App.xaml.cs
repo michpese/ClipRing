@@ -66,7 +66,7 @@ public partial class App : Application
         settings.PropertyChanged += (_, args) =>
         {
             var name = args.PropertyName ?? "";
-            if (AppSettings.HotkeyProperties.Contains(name) || name == nameof(AppSettings.ValorantEnabled))
+            if (AppSettings.HotkeyProperties.Contains(name))
                 RegisterHotkeys();
         };
         HotkeyBox.CaptureStarted += () => _hotkeys?.Suspend();
@@ -141,11 +141,6 @@ public partial class App : Application
                      () => _ = service.SaveClipAsync(settings.ShortClipSeconds));
             Register("toggle", nameof(AppSettings.HotkeyToggle), () => settings.HotkeyToggle, v => settings.HotkeyToggle = v,
                      service.TogglePause);
-            if (settings.ValorantEnabled)
-                Register("valorant", nameof(AppSettings.HotkeyValorantCalibrate), () => settings.HotkeyValorantCalibrate,
-                         v => settings.HotkeyValorantCalibrate = v, service.CaptureValorantTemplate);
-            else
-                hotkeys.Unregister("valorant");
         }
         finally
         {

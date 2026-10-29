@@ -23,13 +23,11 @@ public static partial class FfmpegLocator
     [GeneratedRegex(@"^\s*[TSC.]{2,3}\s+(\S+)\s+\S*->\S*", RegexOptions.Multiline)]
     private static partial Regex FilterLine();
 
-    public static IEnumerable<string> Candidates(string? configured)
+    /// <summary>
+    /// External ffmpeg.exe locations, used when the user picked one or ClipRing was built without FFmpeg.
+    /// </summary>
+    public static IEnumerable<string> ExternalCandidates()
     {
-        if (!string.IsNullOrWhiteSpace(configured))
-        {
-            yield return Directory.Exists(configured) ? System.IO.Path.Combine(configured, "ffmpeg.exe") : configured;
-        }
-
         var baseDir = AppContext.BaseDirectory;
         yield return System.IO.Path.Combine(baseDir, "ffmpeg.exe");
         yield return System.IO.Path.Combine(baseDir, "ffmpeg", "ffmpeg.exe");
@@ -48,9 +46,20 @@ public static partial class FfmpegLocator
         yield return System.IO.Path.Combine(local, "Microsoft", "WinGet", "Links", "ffmpeg.exe");
     }
 
+    /// <summary>
+    /// Order: the path chosen by the user, the FFmpeg built into ClipRing.exe, then external copies
+    /// (next to the program, in PATH, WinGet).
+    /// </summary>
     public static async Task<FfmpegInfo?> DetectAsync(string? configured, CancellationToken ct = default)
     {
-        foreach (var candidate in Candidates(configured).Distinct(StringComparer.OrdinalIgnoreCase))
+        var candidates = new List<string>();
+        if (!string.IsNullOrWhiteSpace(configured))
+            candidates.Add(Directory.Exists(configured) ? System.IO.Path.Combine(configured, "ffmpeg.exe") : configured);
+        var embedded = await EmbeddedFfmpeg.EnsureExtractedAsync(ct).ConfigureAwait(false);
+        if (embedded is not null) candidates.Add(embedded);
+        candidates.AddRange(ExternalCandidates());
+
+        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (!File.Exists(candidate)) continue;
             try

@@ -142,28 +142,6 @@ public sealed class AppSettings : ObservableObject
     private bool _cs2IgnoreWarmup = true;
     public bool Cs2IgnoreWarmup { get => _cs2IgnoreWarmup; set => Set(ref _cs2IgnoreWarmup, value); }
 
-    private bool _valorantEnabled;
-    public bool ValorantEnabled { get => _valorantEnabled; set => Set(ref _valorantEnabled, value); }
-
-    private double _valorantThreshold = 0.60;
-    public double ValorantThreshold { get => _valorantThreshold; set => Set(ref _valorantThreshold, Math.Clamp(value, 0.3, 0.95)); }
-
-    private int _valorantMinKills = 1;
-    public int ValorantMinKills { get => _valorantMinKills; set => Set(ref _valorantMinKills, Math.Clamp(value, 1, 5)); }
-
-    private string _hotkeyValorantCalibrate = "Strg+Alt+K";
-    public string HotkeyValorantCalibrate { get => _hotkeyValorantCalibrate; set => Set(ref _hotkeyValorantCalibrate, value ?? ""); }
-
-    // Region of the kill banner, relative to the monitor (0..1).
-    private double _valorantRegionX = 0.40;
-    public double ValorantRegionX { get => _valorantRegionX; set => Set(ref _valorantRegionX, Math.Clamp(value, 0, 0.95)); }
-    private double _valorantRegionY = 0.66;
-    public double ValorantRegionY { get => _valorantRegionY; set => Set(ref _valorantRegionY, Math.Clamp(value, 0, 0.95)); }
-    private double _valorantRegionW = 0.20;
-    public double ValorantRegionW { get => _valorantRegionW; set => Set(ref _valorantRegionW, Math.Clamp(value, 0.03, 1)); }
-    private double _valorantRegionH = 0.22;
-    public double ValorantRegionH { get => _valorantRegionH; set => Set(ref _valorantRegionH, Math.Clamp(value, 0.03, 1)); }
-
     // ---------------------------------------------------------------- Games
     private bool _detectFullscreenApps = true;
     public bool DetectFullscreenApps { get => _detectFullscreenApps; set => Set(ref _detectFullscreenApps, value); }
@@ -230,6 +208,6 @@ public sealed class AppSettings : ObservableObject
 
     public static readonly HashSet<string> HotkeyProperties = new()
     {
-        nameof(HotkeySave), nameof(HotkeySaveShort), nameof(HotkeyToggle), nameof(HotkeyValorantCalibrate),
+        nameof(HotkeySave), nameof(HotkeySaveShort), nameof(HotkeyToggle),
     };
 }

@@ -36,7 +36,6 @@ public sealed class MainViewModel : ObservableObject
         OpenClipCommand = new RelayCommand(p => { if (p is SavedClip c) OpenClip(c); });
         ShowClipCommand = new RelayCommand(p => { if (p is SavedClip c) Shell.ShowInExplorer(c.FilePath); });
         InstallCs2Command = new RelayCommand(InstallCs2);
-        OpenValorantTemplatesCommand = new RelayCommand(OpenValorantTemplates);
         BrowseFfmpegCommand = new RelayCommand(BrowseFfmpeg);
         RedetectCommand = new RelayCommand(() => _ = Service.RedetectAsync());
         OpenLogsCommand = new RelayCommand(() => Shell.Open(AppPaths.LogDir));
@@ -251,7 +250,6 @@ public sealed class MainViewModel : ObservableObject
     public ICommand OpenClipCommand { get; }
     public ICommand ShowClipCommand { get; }
     public ICommand InstallCs2Command { get; }
-    public ICommand OpenValorantTemplatesCommand { get; }
     public ICommand BrowseFfmpegCommand { get; }
     public ICommand RedetectCommand { get; }
     public ICommand OpenLogsCommand { get; }
@@ -317,13 +315,6 @@ public sealed class MainViewModel : ObservableObject
         {
             Cs2InstallStatus = "";
         }
-    }
-
-    private void OpenValorantTemplates()
-    {
-        var folder = Service.ValorantTemplateFolder;
-        Directory.CreateDirectory(folder);
-        Shell.Open(folder);
     }
 
     // ---------------------------------------------------------------- change tracking

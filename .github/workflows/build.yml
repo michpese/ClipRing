@@ -25,9 +25,11 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Kompilieren
+      - name: Kompilieren (mit eingebautem FFmpeg)
         shell: pwsh
-        run: ./build.ps1 -SkipFfmpeg *>&1 | Tee-Object -FilePath build.log
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./build.ps1 *>&1 | Tee-Object -FilePath build.log
 
       - name: Compiler-Meldungen als Annotationen
         if: always()
@@ -56,7 +58,7 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Bauen inklusive .NET-Runtime und FFmpeg
+      - name: Bauen inklusive .NET-Runtime und eingebautem FFmpeg
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

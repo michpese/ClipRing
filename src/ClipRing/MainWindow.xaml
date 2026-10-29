@@ -585,68 +585,6 @@
                             </StackPanel>
                         </Border>
 
-                        <TextBlock Text="VALORANT (experimentell)" Style="{StaticResource Text.SectionTitle}" />
-                        <Border Style="{StaticResource Sheet}">
-                            <StackPanel>
-                                <Border BorderBrush="{StaticResource Brush.Line}" BorderThickness="0,0,0,1" Padding="20,16">
-                                    <TextBlock Style="{StaticResource Text.Muted}" FontSize="13">
-                                        <Run Text="VALORANT bietet keine offizielle Schnittstelle für Spielereignisse, und Vanguard verbietet jeden Zugriff auf den Spielspeicher. ClipRing erkennt Kills deshalb am Kill-Banner im Bild. Dafür braucht es einmalig Vorlagen: Erkennung einschalten, im Schießstand einen Bot erledigen und sofort" />
-                                        <Run Text="{Binding Settings.HotkeyValorantCalibrate, Mode=OneWay}" Foreground="{StaticResource Brush.Text}" />
-                                        <Run Text="drücken. Zwei bis drei Vorlagen reichen meist." />
-                                    </TextBlock>
-                                </Border>
-                                <ui:SettingRow Title="Automatische Clips">
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ValorantEnabled}" />
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Vorlage aufnehmen" Description="Hotkey, der den aktuellen Bannerbereich als Vorlage speichert.">
-                                    <ui:HotkeyBox Hotkey="{Binding Settings.HotkeyValorantCalibrate}" />
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Status">
-                                    <TextBlock Text="{Binding Service.ValorantStatusText}" Style="{StaticResource Text.Value}" MaxWidth="340" TextAlignment="Right" />
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Auslöseschwelle" Description="Live-Übereinstimmung links, Schwelle rechts. Löst es zu oft aus, die Schwelle erhöhen.">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Width="52" Style="{StaticResource Text.Value}" VerticalAlignment="Center"
-                                                   Text="{Binding Service.ValorantScore, StringFormat={}{0:P0}}" />
-                                        <Slider Width="180" Minimum="0.3" Maximum="0.95" TickFrequency="0.01" IsSnapToTickEnabled="True"
-                                                Value="{Binding Settings.ValorantThreshold}" VerticalAlignment="Center" Margin="8,0,0,0" />
-                                        <TextBlock Width="52" Margin="12,0,0,0" Style="{StaticResource Text.Value}" VerticalAlignment="Center"
-                                                   Text="{Binding Settings.ValorantThreshold, StringFormat={}{0:P0}}" />
-                                    </StackPanel>
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Clip erstellen">
-                                    <ComboBox Width="200" ItemsSource="{Binding KillOptions}" DisplayMemberPath="Label"
-                                              SelectedValuePath="Value" SelectedValue="{Binding Settings.ValorantMinKills}" />
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Bannerbereich" Description="Ausschnitt des Bildschirms in Prozent. Nach einer Änderung neue Vorlagen aufnehmen.">
-                                    <Grid Width="330">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto" />
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
-                                        </Grid.RowDefinitions>
-                                        <TextBlock Text="Links" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" Width="56" />
-                                        <Slider Grid.Column="1" Minimum="0" Maximum="0.95" TickFrequency="0.01" IsSnapToTickEnabled="True" Value="{Binding Settings.ValorantRegionX}" />
-                                        <TextBlock Grid.Column="2" Width="44" TextAlignment="Right" Style="{StaticResource Text.Value}" VerticalAlignment="Center" Text="{Binding Settings.ValorantRegionX, StringFormat={}{0:P0}}" />
-                                        <TextBlock Grid.Row="1" Text="Oben" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" />
-                                        <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="0.95" TickFrequency="0.01" IsSnapToTickEnabled="True" Value="{Binding Settings.ValorantRegionY}" />
-                                        <TextBlock Grid.Row="1" Grid.Column="2" TextAlignment="Right" Style="{StaticResource Text.Value}" VerticalAlignment="Center" Text="{Binding Settings.ValorantRegionY, StringFormat={}{0:P0}}" />
-                                        <TextBlock Grid.Row="2" Text="Breite" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" />
-                                        <Slider Grid.Row="2" Grid.Column="1" Minimum="0.05" Maximum="0.6" TickFrequency="0.01" IsSnapToTickEnabled="True" Value="{Binding Settings.ValorantRegionW}" />
-                                        <TextBlock Grid.Row="2" Grid.Column="2" TextAlignment="Right" Style="{StaticResource Text.Value}" VerticalAlignment="Center" Text="{Binding Settings.ValorantRegionW, StringFormat={}{0:P0}}" />
-                                        <TextBlock Grid.Row="3" Text="Höhe" Style="{StaticResource Text.Muted}" VerticalAlignment="Center" />
-                                        <Slider Grid.Row="3" Grid.Column="1" Minimum="0.05" Maximum="0.6" TickFrequency="0.01" IsSnapToTickEnabled="True" Value="{Binding Settings.ValorantRegionH}" />
-                                        <TextBlock Grid.Row="3" Grid.Column="2" TextAlignment="Right" Style="{StaticResource Text.Value}" VerticalAlignment="Center" Text="{Binding Settings.ValorantRegionH, StringFormat={}{0:P0}}" />
-                                    </Grid>
-                                </ui:SettingRow>
-                                <ui:SettingRow Title="Vorlagen" Description="Fehlerhafte Vorlagen einfach im Ordner löschen (.gray und .png)." ShowDivider="False">
-                                    <Button Content="Ordner öffnen" Command="{Binding OpenValorantTemplatesCommand}" />
-                                </ui:SettingRow>
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -738,10 +676,10 @@
                         <TextBlock Text="FFmpeg und Hardware" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
-                                <ui:SettingRow Title="Gefunden">
+                                <ui:SettingRow Title="FFmpeg">
                                     <TextBlock Text="{Binding Service.FfmpegText}" Style="{StaticResource Text.Value}" MaxWidth="420" TextAlignment="Right" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="Eigener Pfad" Description="Leer lassen, dann sucht ClipRing neben dem Programm, im Ordner ffmpeg und im PATH.">
+                                <ui:SettingRow Title="Eigener Pfad" Description="Normalerweise leer lassen: ClipRing bringt FFmpeg mit. Nur ausfüllen, um eine andere ffmpeg.exe zu verwenden.">
                                     <StackPanel Orientation="Horizontal">
                                         <TextBox Width="300" Text="{Binding Settings.FfmpegPath}" VerticalAlignment="Center" />
                                         <Button Content="Auswählen …" Margin="8,0,0,0" Command="{Binding BrowseFfmpegCommand}" />

@@ -1,11 +1,17 @@
 ﻿<#
 .SYNOPSIS
-    Baut ClipRing und legt eine passende FFmpeg-Version daneben.
+    Baut ClipRing als einzelne ClipRing.exe, FFmpeg ist darin eingebaut.
+
+.DESCRIPTION
+    FFmpeg (BtbN-Build, GPL) wird einmal nach .cache\ffmpeg geladen, komprimiert und als Ressource in
+    ClipRing.exe eingebettet. ClipRing entpackt es beim ersten Start nach %LOCALAPPDATA%\ClipRing\ffmpeg
+    und prüft es bei jedem Start per SHA-256.
 
 .EXAMPLE
     .\build.ps1                    # Release, braucht installierte .NET 10 Desktop Runtime
     .\build.ps1 -SelfContained     # bringt die .NET-Runtime mit (größer, läuft überall)
-    .\build.ps1 -SkipFfmpeg        # FFmpeg nicht herunterladen (eigene ffmpeg.exe verwenden)
+    .\build.ps1 -UpdateFfmpeg      # neueste FFmpeg-Version laden statt der zwischengespeicherten
+    .\build.ps1 -SkipFfmpeg        # ohne eingebautes FFmpeg (eigene ffmpeg.exe verwenden)
 #>
 [CmdletBinding()]
 param(
@@ -13,6 +19,7 @@ param(
     [string]$Configuration = 'Release',
     [switch]$SelfContained,
     [switch]$SkipFfmpeg,
+    [switch]$UpdateFfmpeg,
     [string]$Output = (Join-Path $PSScriptRoot 'dist\ClipRing')
 )
 
@@ -32,34 +39,31 @@ if (-not ($sdks | Where-Object { $_ -match '^(1\d|[2-9]\d)\.' })) {
 }
 Write-Host ($sdks -join "`n")
 
-# ------------------------------------------------------------------ 2. Build
-Step "ClipRing bauen ($Configuration, self-contained: $SelfContained)"
-$project = Join-Path $PSScriptRoot 'src\ClipRing\ClipRing.csproj'
-$publishArgs = @(
-    'publish', $project,
-    '-c', $Configuration,
-    '-r', 'win-x64',
-    '--self-contained', ($(if ($SelfContained) { 'true' } else { 'false' })),
-    '-p:PublishSingleFile=true',
-    '-p:IncludeNativeLibrariesForSelfExtract=true',
-    '-p:DebugType=embedded',
-    '-o', $Output
-)
-if ($env:GITHUB_ACTIONS -eq 'true') {
-    # Classic one-line diagnostics with full paths, so the workflow can turn them into annotations.
-    $publishArgs += @('-tl:off', '-p:GenerateFullPaths=true', '-clp:NoSummary')
-}
-& dotnet @publishArgs
-if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen (Code $LASTEXITCODE)" }
+# ------------------------------------------------------------------ 2. FFmpeg
+$ffCache = Join-Path $PSScriptRoot '.cache\ffmpeg'
+$ffExe = Join-Path $ffCache 'ffmpeg.exe'
+$ffLicense = Join-Path $ffCache 'FFMPEG-LICENSE.txt'
+$embedArgs = @()
 
-# ------------------------------------------------------------------ 3. FFmpeg
 if ($SkipFfmpeg) {
-    Write-Host "`nFFmpeg übersprungen. Lege ffmpeg.exe nach $Output\ffmpeg\ oder wähle den Pfad in ClipRing unter 'Allgemein'."
+    Step 'FFmpeg übersprungen (-SkipFfmpeg)'
+    Write-Host "ClipRing sucht dann eine ffmpeg.exe neben dem Programm, im PATH oder unter dem Pfad aus 'Allgemein'."
 }
 else {
-    $ffDir = Join-Path $Output 'ffmpeg'
-    if (Test-Path (Join-Path $ffDir 'ffmpeg.exe')) {
-        Step 'FFmpeg ist bereits vorhanden'
+    if ($UpdateFfmpeg -and (Test-Path $ffCache)) { Remove-Item $ffCache -Recurse -Force }
+    New-Item -ItemType Directory -Force -Path $ffCache | Out-Null
+
+    # Earlier versions put FFmpeg next to the exe: reuse that copy instead of downloading again.
+    $oldCopy = Join-Path $Output 'ffmpeg\ffmpeg.exe'
+    if (-not (Test-Path $ffExe) -and -not $UpdateFfmpeg -and (Test-Path $oldCopy)) {
+        Step 'Vorhandenes FFmpeg aus dist\ClipRing\ffmpeg übernehmen'
+        Copy-Item $oldCopy $ffExe
+        $oldLicense = Join-Path $Output 'ffmpeg\FFMPEG-LICENSE.txt'
+        if (Test-Path $oldLicense) { Copy-Item $oldLicense $ffLicense }
+    }
+
+    if (Test-Path $ffExe) {
+        Step 'FFmpeg ist bereits vorhanden (neu laden mit -UpdateFfmpeg)'
     }
     else {
         Step 'FFmpeg herunterladen (BtbN/FFmpeg-Builds, GPL, mit NVENC/AMF/QSV/D3D12/x264/x265/SVT-AV1)'
@@ -68,7 +72,7 @@ else {
         if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
         $release = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -Headers $headers
 
-        # Newest stable release branch, e.g. ffmpeg-n8.1-latest-win64-gpl-8.1.zip
+        # Newest stable release branch, e.g. ffmpeg-n9.0-latest-win64-gpl-9.0.zip
         $candidates = foreach ($a in $release.assets) {
             if ($a.name -match '^ffmpeg-n(\d+)\.(\d+)-latest-win64-gpl-\d+\.\d+\.zip$') {
                 [pscustomobject]@{ Asset = $a; Version = [version]"$($Matches[1]).$($Matches[2])" }
@@ -92,10 +96,9 @@ else {
             Expand-Archive $zip -DestinationPath $temp
             $bin = Get-ChildItem $temp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
             if (-not $bin) { throw 'ffmpeg.exe nicht im Archiv gefunden.' }
-            New-Item -ItemType Directory -Force -Path $ffDir | Out-Null
-            Copy-Item $bin.FullName $ffDir
+            Copy-Item $bin.FullName $ffExe
             $license = Get-ChildItem $temp -Recurse -Filter 'LICENSE*' | Select-Object -First 1
-            if ($license) { Copy-Item $license.FullName (Join-Path $ffDir 'FFMPEG-LICENSE.txt') }
+            if ($license) { Copy-Item $license.FullName $ffLicense }
         }
         finally {
             Remove-Item $temp -Recurse -Force -ErrorAction SilentlyContinue
@@ -103,16 +106,70 @@ else {
     }
 
     Step 'FFmpeg prüfen'
-    $ffmpeg = Join-Path $ffDir 'ffmpeg.exe'
-    & $ffmpeg -hide_banner -version | Select-Object -First 1
-    $filters = & $ffmpeg -hide_banner -filters 2>$null
-    if (-not ($filters -match '\bddagrab\b')) { Write-Warning 'Dieses FFmpeg hat kein ddagrab, die Bildschirmaufnahme wird nicht funktionieren.' }
-    $encoders = & $ffmpeg -hide_banner -encoders 2>$null
+    $versionLine = & $ffExe -hide_banner -version | Select-Object -First 1
+    Write-Host $versionLine
+    $ffVersion = if ($versionLine -match 'version\s+(\S+)') { $Matches[1] } else { 'unbekannt' }
+    $filters = & $ffExe -hide_banner -filters 2>$null
+    foreach ($f in 'gfxcapture', 'ddagrab') {
+        $state = if ($filters -match "\b$f\b") { 'enthalten' } else { '-' }
+        '{0,-14} {1}' -f $f, $state
+    }
+    if (-not ($filters -match '\b(gfxcapture|ddagrab)\b')) {
+        Write-Warning 'Dieses FFmpeg kann den Bildschirm nicht aufnehmen (weder gfxcapture noch ddagrab).'
+    }
+    $encoders = & $ffExe -hide_banner -encoders 2>$null
     foreach ($e in 'h264_nvenc', 'hevc_nvenc', 'av1_nvenc', 'h264_amf', 'hevc_amf', 'av1_amf', 'h264_qsv', 'hevc_qsv', 'av1_qsv',
                    'h264_d3d12va', 'hevc_d3d12va', 'av1_d3d12va', 'libx264', 'libx265', 'libsvtav1') {
         $state = if ($encoders -match "\b$e\b") { 'enthalten' } else { '-' }
         '{0,-14} {1}' -f $e, $state
     }
+
+    Step 'FFmpeg für die Einbettung komprimieren'
+    $ffGz = Join-Path $ffCache 'ffmpeg.exe.gz'
+    if (-not (Test-Path $ffGz) -or (Get-Item $ffGz).LastWriteTimeUtc -lt (Get-Item $ffExe).LastWriteTimeUtc) {
+        $in = [IO.File]::OpenRead($ffExe)
+        try {
+            $out = [IO.File]::Create($ffGz)
+            try {
+                $gzip = New-Object IO.Compression.GZipStream($out, [IO.Compression.CompressionLevel]::Optimal)
+                try { $in.CopyTo($gzip) } finally { $gzip.Dispose() }
+            }
+            finally { $out.Dispose() }
+        }
+        finally { $in.Dispose() }
+    }
+    $ffHash = (Get-FileHash $ffExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-Host ("{0:N0} MB -> {1:N0} MB, SHA-256 {2}" -f ((Get-Item $ffExe).Length / 1MB), ((Get-Item $ffGz).Length / 1MB), $ffHash)
+
+    $embedArgs = @("-p:EmbedFfmpeg=$ffGz", "-p:FfmpegSha256=$ffHash", "-p:FfmpegVersion=$ffVersion")
 }
 
-Step "Fertig: $Output\ClipRing.exe"
+# ------------------------------------------------------------------ 3. Build
+Step "ClipRing bauen ($Configuration, self-contained: $SelfContained, FFmpeg eingebaut: $(-not $SkipFfmpeg))"
+$project = Join-Path $PSScriptRoot 'src\ClipRing\ClipRing.csproj'
+$publishArgs = @(
+    'publish', $project,
+    '-c', $Configuration,
+    '-r', 'win-x64',
+    '--self-contained', ($(if ($SelfContained) { 'true' } else { 'false' })),
+    '-p:PublishSingleFile=true',
+    '-p:IncludeNativeLibrariesForSelfExtract=true',
+    '-p:DebugType=embedded',
+    '-o', $Output
+) + $embedArgs
+if ($env:GITHUB_ACTIONS -eq 'true') {
+    # Classic one-line diagnostics with full paths, so the workflow can turn them into annotations.
+    $publishArgs += @('-tl:off', '-p:GenerateFullPaths=true', '-clp:NoSummary')
+}
+& dotnet @publishArgs
+if ($LASTEXITCODE -ne 0) { throw "Build fehlgeschlagen (Code $LASTEXITCODE)" }
+
+if (-not $SkipFfmpeg) {
+    # FFmpeg now lives inside ClipRing.exe: drop the separate copy of earlier versions, keep the license.
+    $oldDir = Join-Path $Output 'ffmpeg'
+    if (Test-Path $oldDir) { Remove-Item $oldDir -Recurse -Force }
+    if (Test-Path $ffLicense) { Copy-Item $ffLicense (Join-Path $Output 'FFMPEG-LICENSE.txt') -Force }
+}
+
+$size = (Get-Item (Join-Path $Output 'ClipRing.exe')).Length / 1MB
+Step ("Fertig: $Output\ClipRing.exe ({0:N0} MB)" -f $size)

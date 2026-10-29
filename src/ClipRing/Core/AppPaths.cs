@@ -7,12 +7,18 @@ public static class AppPaths
 
     public static string SettingsFile => Path.Combine(DataDir, "settings.json");
     public static string LogDir => Path.Combine(DataDir, "logs");
-    public static string ValorantTemplateDir => Path.Combine(DataDir, "valorant-templates");
 
     public static void EnsureCreated()
     {
         Directory.CreateDirectory(DataDir);
         Directory.CreateDirectory(LogDir);
-        Directory.CreateDirectory(ValorantTemplateDir);
+
+        // Left over from the removed VALORANT detection (kill-banner templates).
+        try
+        {
+            var templates = Path.Combine(DataDir, "valorant-templates");
+            if (Directory.Exists(templates)) Directory.Delete(templates, recursive: true);
+        }
+        catch { /* not important */ }
     }
 }

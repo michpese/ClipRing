@@ -8,7 +8,7 @@ Instant-Replay für Windows im Stil von ShadowPlay, AMD ReLive und dem OBS-Repla
 
 ## Download
 
-Fertige Versionen mit .NET-Runtime und FFmpeg liegen unter [Releases](https://github.com/michpese/ClipRing/releases): Zip entpacken, `ClipRing.exe` starten. Den aktuellen Entwicklungsstand (ohne FFmpeg) gibt es bei jedem erfolgreichen [Build](https://github.com/michpese/ClipRing/actions/workflows/build.yml) als Artefakt.
+Fertige Versionen liegen unter [Releases](https://github.com/michpese/ClipRing/releases): Zip entpacken, `ClipRing.exe` starten. Die .NET-Runtime und FFmpeg sind in der einen Datei enthalten, ein separates Programm ist nicht nötig. Den aktuellen Entwicklungsstand gibt es bei jedem erfolgreichen [Build](https://github.com/michpese/ClipRing/actions/workflows/build.yml) als Artefakt (FFmpeg eingebaut, braucht die .NET 10 Desktop Runtime).
 
 ## Funktionen
 
@@ -29,7 +29,6 @@ Fertige Versionen mit .NET-Runtime und FFmpeg liegen unter [Releases](https://gi
 | Mikrofon einstellbar | an/aus, Gerät, Lautstärke |
 | PC- und Mikrofon-Lautstärke | getrennte Regler (0–200 %) mit Pegelanzeige, wirken sofort |
 | Highlights CS2 | Valves offizielle Game State Integration: Kills, Multi-Kills, Ace; VAC-sicher |
-| Highlights VALORANT | experimentell: Erkennung des Kill-Banners im Bild nach einmaliger Kalibrierung |
 | Moderne UI | WPF mit Fluent-Dark-Theme (.NET 10), eigene Navigation, Puffer-Anzeige |
 
 ## Voraussetzungen
@@ -37,7 +36,7 @@ Fertige Versionen mit .NET-Runtime und FFmpeg liegen unter [Releases](https://gi
 - Windows 10 (2004) oder Windows 11, 64 Bit
 - **Zum Bauen:** [.NET 10 SDK](https://dotnet.microsoft.com/download) – `winget install Microsoft.DotNet.SDK.10`
 - **Zum Ausführen:** .NET 10 Desktop Runtime (entfällt mit `-SelfContained`)
-- **FFmpeg** als Windows-Build mit `ddagrab`, Version 7.1 oder neuer, empfohlen 8.1 oder neuer. Das Build-Skript lädt ihn automatisch.
+- **FFmpeg** ist in `ClipRing.exe` eingebaut. Das Build-Skript lädt dafür einmal einen Windows-Build (BtbN, GPL, Version 8.1 oder neuer) nach `.cache\ffmpeg`.
 - Aktueller Grafiktreiber (für NVENC/AMF/QSV)
 
 ## Bauen
@@ -47,14 +46,17 @@ Fertige Versionen mit .NET-Runtime und FFmpeg liegen unter [Releases](https://gi
 winget install Microsoft.DotNet.SDK.10
 
 # im Projektordner
-.\build.ps1                 # Release nach dist\ClipRing, lädt FFmpeg nach dist\ClipRing\ffmpeg
-.\build.ps1 -SelfContained  # bringt die .NET-Runtime mit, läuft auf jedem Windows-PC
-.\build.ps1 -SkipFfmpeg     # eigenes FFmpeg verwenden
+.\build.ps1                 # Release nach dist\ClipRing\ClipRing.exe, FFmpeg eingebaut
+.\build.ps1 -SelfContained  # bringt zusätzlich die .NET-Runtime mit, läuft auf jedem Windows-PC
+.\build.ps1 -UpdateFfmpeg   # neueste FFmpeg-Version laden statt der zwischengespeicherten
+.\build.ps1 -SkipFfmpeg     # ohne eingebautes FFmpeg (eigene ffmpeg.exe verwenden)
 ```
 
 Falls PowerShell Skripte blockiert: `powershell -ExecutionPolicy Bypass -File .\build.ps1`
 
-Danach `dist\ClipRing\ClipRing.exe` starten.
+Danach `dist\ClipRing\ClipRing.exe` starten. Neben der exe liegt nur noch `FFMPEG-LICENSE.txt`.
+
+**Wie FFmpeg eingebaut ist:** Das Skript komprimiert `ffmpeg.exe` und bettet es als Ressource in `ClipRing.exe` ein, zusammen mit seiner SHA-256-Prüfsumme. Beim ersten Start entpackt ClipRing es nach `%LOCALAPPDATA%\ClipRing\ffmpeg\` und startet es von dort als Hintergrundprozess; bei jedem Start wird die Prüfsumme kontrolliert und eine beschädigte oder veränderte Datei ersetzt. Alte Versionen werden aufgeräumt.
 
 **Ohne Skript / zum Entwickeln:**
 
@@ -63,13 +65,13 @@ dotnet build src\ClipRing\ClipRing.csproj
 dotnet run --project src\ClipRing
 ```
 
-`ClipRing.sln` öffnet sich in Visual Studio 2022/2026 oder Rider. Für `dotnet run` muss `ffmpeg.exe` im PATH liegen (z. B. `winget install Gyan.FFmpeg`) oder in den Einstellungen unter „Allgemein“ gewählt werden.
+`ClipRing.sln` öffnet sich in Visual Studio 2022/2026 oder Rider. Ohne `build.ps1` ist kein FFmpeg eingebaut: für `dotnet run` muss `ffmpeg.exe` im PATH liegen (z. B. `winget install Gyan.FFmpeg`) oder in den Einstellungen unter „Allgemein“ gewählt werden. Alternativ einmal `.\build.ps1` ausführen und `dotnet build` die gleichen Eigenschaften mitgeben: `-p:EmbedFfmpeg=<Pfad>\.cache\ffmpeg\ffmpeg.exe.gz`.
 
-**FFmpeg von Hand:** Von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases/tag/latest) die Datei `ffmpeg-n9.0-latest-win64-gpl-9.0.zip` (oder 8.1) laden und `bin\ffmpeg.exe` nach `dist\ClipRing\ffmpeg\` kopieren.
+**Anderes FFmpeg:** Eine eigene `ffmpeg.exe` (ab 8.1) unter „Allgemein → Eigener Pfad“ wählen; sie hat Vorrang vor dem eingebauten.
 
 ## Erste Schritte
 
-1. ClipRing starten. Beim ersten Start prüft es FFmpeg, die Monitore und testet die Encoder (dauert ein paar Sekunden, Status unter „Übersicht“).
+1. ClipRing starten. Beim ersten Start entpackt es das eingebaute FFmpeg, erkennt die Monitore und testet die Encoder (dauert ein paar Sekunden, Status unter „Übersicht“).
 2. Spielen. Mit **Strg+Alt+F10** werden die letzten 2 Minuten gespeichert, mit **Strg+Alt+F9** die letzten 30 Sekunden. **Strg+Alt+F11** pausiert. (Die Tasten lassen sich unter „Hotkeys“ ändern. Alt+F9/F10 sind bewusst nicht belegt, weil die NVIDIA App sie nutzt.)
 3. Clips landen in `Videos\ClipRing\<Spiel>\`.
 
@@ -100,29 +102,19 @@ Hotkey ─▶ Schnappschuss der letzten N s ─▶ ffmpeg -c copy (ohne Neukodie
 2. CS2 neu starten. Der Status zeigt „Verbunden“, sobald Daten kommen.
 3. Wählen, ab wie vielen Kills ein Clip entsteht und in welchen Spielmodi (Standard: nur Wettkampf und Premier). Kills kurz hintereinander werden zusammengefasst (Dateiname z. B. `…_3K.mp4`, `…_Ace.mp4`). Automatische Highlights spielen keinen Signalton.
 
-**VALORANT (experimentell)**
-
-VALORANT bietet keine offizielle Ereignis-Schnittstelle, und Vanguard verbietet jeden Zugriff auf den Spielspeicher. ClipRing liest deshalb nur das Bild: eine zweite, sehr leichte Aufnahme des Kill-Banner-Bereichs (10 fps, Graustufen) wird mit Vorlagen verglichen.
-
-1. Unter „Highlights“ VALORANT einschalten.
-2. Im Schießstand einen Bot erledigen und sofort **Strg+Alt+K** drücken. Das speichert eine Vorlage. Zwei bis drei Vorlagen aufnehmen.
-3. Die Live-Übereinstimmung neben dem Regler beobachten und die Schwelle so wählen, dass Kills sicher darüber und normale Szenen darunter liegen.
-
-Der Banner-Bereich ist mit Schätzwerten vorbelegt und lässt sich anpassen; nach einer Änderung neue Vorlagen aufnehmen. Diese Funktion ist ausdrücklich ein Versuch und muss mit dem echten Spiel abgestimmt werden.
-
 ## Dateien
 
 | Was | Wo |
 |---|---|
 | Einstellungen | `%APPDATA%\ClipRing\settings.json` |
 | Protokoll (mit allen FFmpeg-Befehlen) | `%APPDATA%\ClipRing\logs\` |
-| VALORANT-Vorlagen | `%APPDATA%\ClipRing\valorant-templates\` |
+| Entpacktes FFmpeg | `%LOCALAPPDATA%\ClipRing\ffmpeg\` |
 | Clips | `%USERPROFILE%\Videos\ClipRing\` (einstellbar) |
 
 ## Entwicklung
 
 - **Automatischer Build:** [`.github/workflows/build.yml`](.github/workflows/build.yml) baut jeden Push auf `main` und jeden Pull Request auf einem Windows-Runner von GitHub und stellt das Ergebnis als Artefakt bereit.
-- **Release:** Ein Tag wie `v0.2.0` erzeugt automatisch ein GitHub-Release mit fertigem Zip (inklusive .NET-Runtime und FFmpeg).
+- **Release:** Ein Tag wie `v0.2.0` erzeugt automatisch ein GitHub-Release mit fertigem Zip (`ClipRing.exe` inklusive .NET-Runtime und FFmpeg).
 
   ```powershell
   git tag v0.2.0
@@ -134,10 +126,10 @@ Der Banner-Bereich ist mit Schätzwerten vorbelegt und lässt sich anpassen; nac
 
 ```
 src/ClipRing/
-  Capture/     FFmpeg-Suche, Monitor-Erkennung, Encoder-Pipelines und -Test, MP4-Parser, RAM-Puffer, Recorder, Clip-Speicherung
+  Capture/     eingebautes FFmpeg, FFmpeg-Suche, Monitor-Erkennung, Encoder-Pipelines und -Test, MP4-Parser, RAM-Puffer, Recorder, Clip-Speicherung
   Audio/       WASAPI-Loopback und Mikrofon, Mixer mit Lautstärke und Uhr-Verankerung
   Games/       Spielerkennung (Vordergrund, Bibliotheken, Vollbild), Liste bekannter Spiele
-  Highlights/  CS2-GSI-Empfänger und -Installer, VALORANT-Banner-Erkennung, Zusammenfassung zu Clips
+  Highlights/  CS2-GSI-Empfänger und -Installer, Zusammenfassung zu Clips
   Hotkeys/     globale Hotkeys
   Services/    ReplayService (steuert alles), Autostart, Signaltöne
   UI/          Theme, ViewModel, eigene Steuerelemente (Puffer-Band, Pegel, Hotkey-Feld), Infobereich
@@ -147,7 +139,7 @@ src/ClipRing/
 
 - Eine gemeinsame Tonspur (PC + Mikrofon gemischt), noch keine getrennten Spuren.
 - Wechselt ein Spiel im exklusiven Vollbild die Auflösung, startet die Aufnahme neu und der Puffer beginnt von vorn.
-- Aufgenommen wird der ganze Monitor, nicht ein einzelnes Fenster.
+- Fensteraufnahme gibt es nur für das erkannte Spiel (Aufnahmemethode „Spielfenster“), nicht für beliebige Fenster.
 - Die Dateien haben eine variable Bildrate (exakte Aufnahmezeiten). Einige Schnittprogramme wie Premiere wandeln das beim Import um.
 - HDR wird als SDR aufgenommen; DRM-geschützte Inhalte erscheinen schwarz.
 - Bei voller GPU-Last kann die Desktop-Duplizierung Bilder auslassen (FFmpeg läuft mit erhöhter CPU-Priorität, eine GPU-Priorität setzt es nicht).
@@ -156,11 +148,11 @@ src/ClipRing/
 ## Ideen für die nächste Iteration
 
 - Getrennte Tonspuren (Spiel, Mikrofon) per Named Pipes
-- Fensteraufnahme über `gfxcapture` (FFmpeg 8.1+)
+- Kleineres eingebautes FFmpeg (eigener Build nur mit den benötigten Teilen statt des vollen BtbN-Builds)
 - Kleines Overlay beim Speichern, einfacher Trimm-Editor in der Clip-Liste
 - Optionale Umwandlung in konstante Bildrate beim Speichern
 - Weitere Spiele mit offizieller Ereignis-Schnittstelle (z. B. Dota 2 GSI, League of Legends Live Client Data API)
 
 ## Lizenz
 
-ClipRing steht unter der [GNU General Public License v3.0](LICENSE). FFmpeg (GPL) wird als eigenständiges Programm aufgerufen und in Releases mitgeliefert, seine Lizenz liegt dort unter `ffmpeg/FFMPEG-LICENSE.txt`. [NAudio](https://github.com/naudio/NAudio) steht unter der MIT-Lizenz.
+ClipRing steht unter der [GNU General Public License v3.0](LICENSE). FFmpeg (GPL, Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), Quellcode unter [ffmpeg.org](https://ffmpeg.org/download.html)) ist unverändert in `ClipRing.exe` eingebettet und läuft als eigener Prozess; seine Lizenz liegt neben der exe als `FFMPEG-LICENSE.txt`. [NAudio](https://github.com/naudio/NAudio) steht unter der MIT-Lizenz.

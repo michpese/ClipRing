@@ -43,4 +43,18 @@
     <EmbeddedResource Include="Games\known_games.json" LogicalName="ClipRing.known_games.json" />
   </ItemGroup>
 
+  <!-- FFmpeg built into ClipRing.exe. build.ps1 passes the gzip-compressed ffmpeg.exe, its SHA-256 and version;
+       without them (dotnet build, -SkipFfmpeg) ClipRing looks for an external ffmpeg.exe instead. -->
+  <ItemGroup Condition="'$(EmbedFfmpeg)' != ''">
+    <EmbeddedResource Include="$(EmbedFfmpeg)" LogicalName="ClipRing.ffmpeg.exe.gz" WithCulture="false" />
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>FfmpegSha256</_Parameter1>
+      <_Parameter2>$(FfmpegSha256)</_Parameter2>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>FfmpegVersion</_Parameter1>
+      <_Parameter2>$(FfmpegVersion)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

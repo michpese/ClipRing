@@ -36,7 +36,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private PipelineSpec? _pipeline;
     private bool _pipelineHasAudio;
     private Cs2GameStateServer? _cs2;
-    private ValorantKillDetector? _valorant;
     private bool _userPaused;
     private int _failures;
     private int _statsTick;
@@ -85,7 +84,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
     }
 
-    public string FfmpegText => _ffmpeg is null ? "Nicht gefunden" : $"Version {_ffmpeg.Version} in {_ffmpeg.Path}";
+    public string FfmpegText => _ffmpeg is null ? "Nicht gefunden"
+        : EmbeddedFfmpeg.IsEmbeddedPath(_ffmpeg.Path)
+            ? $"Eingebaut, Version {_ffmpeg.Version}"
+            : $"Version {_ffmpeg.Version} in {_ffmpeg.Path}";
 
     private IReadOnlyList<MonitorInfo> _monitors = Array.Empty<MonitorInfo>();
     public IReadOnlyList<MonitorInfo> Monitors
@@ -156,12 +158,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     private string _cs2StatusText = "Aus";
     public string Cs2StatusText { get => _cs2StatusText; private set => Set(ref _cs2StatusText, value); }
-
-    private string _valorantStatusText = "Aus";
-    public string ValorantStatusText { get => _valorantStatusText; private set => Set(ref _valorantStatusText, value); }
-
-    private double _valorantScore;
-    public double ValorantScore { get => _valorantScore; private set => Set(ref _valorantScore, value); }
 
     private bool _isSaving;
     public bool IsSaving { get => _isSaving; private set => Set(ref _isSaving, value); }
@@ -268,18 +264,20 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private async Task<bool> DetectEnvironmentAsync()
     {
         State = ReplayState.Initializing;
-        StatusText = "FFmpeg wird gesucht …";
+        StatusText = EmbeddedFfmpeg.IsAvailable ? "Aufnahme wird vorbereitet …" : "FFmpeg wird gesucht …";
         Ffmpeg = await FfmpegLocator.DetectAsync(Settings.FfmpegPath);
         if (Ffmpeg is null)
         {
-            SetError("FFmpeg wurde nicht gefunden. Lege ffmpeg.exe in den Ordner „ffmpeg“ neben ClipRing.exe " +
-                     "oder wähle den Pfad unter „Allgemein“ aus.");
+            SetError(EmbeddedFfmpeg.IsAvailable
+                ? "Das eingebaute FFmpeg ließ sich nicht starten. Details stehen im Protokoll; ein Virenscanner kann die Ursache sein."
+                : "Dieser Build enthält kein FFmpeg. Mit build.ps1 ohne -SkipFfmpeg bauen, ffmpeg.exe in den Ordner „ffmpeg“ " +
+                  "neben ClipRing.exe legen oder den Pfad unter „Allgemein“ wählen.");
             return false;
         }
-        if (!Ffmpeg.HasFilter("ddagrab"))
+        if (!Ffmpeg.HasFilter("ddagrab") && !Ffmpeg.HasFilter("gfxcapture"))
         {
-            SetError($"Dieses FFmpeg ({Ffmpeg.Version}) kann den Bildschirm nicht per Desktop Duplication aufnehmen. " +
-                     "Benötigt wird ein Windows-Build ab Version 7.1, empfohlen 8.1 oder neuer.");
+            SetError($"Dieses FFmpeg ({Ffmpeg.Version}) kann den Bildschirm nicht aufnehmen. " +
+                     "Benötigt wird ein Windows-Build ab Version 8.1.");
             return false;
         }
 
@@ -754,12 +752,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
             case nameof(AppSettings.Cs2Port):
             case nameof(AppSettings.Cs2Token):
             case nameof(AppSettings.Cs2IgnoreWarmup):
-            case nameof(AppSettings.ValorantEnabled):
-            case nameof(AppSettings.ValorantThreshold):
-            case nameof(AppSettings.ValorantRegionX):
-            case nameof(AppSettings.ValorantRegionY):
-            case nameof(AppSettings.ValorantRegionW):
-            case nameof(AppSettings.ValorantRegionH):
                 ApplyHighlights();
                 break;
             case nameof(AppSettings.OutputFolder):
@@ -832,9 +824,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
         {
             Cs2StatusText = "Aus";
         }
-
-        // VALORANT: detector is (re)created by UpdateValorantDetector when the game runs.
-        StopValorantDetector();
     }
 
     private string? _cs2IgnoredMode;
@@ -845,68 +834,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
         Cs2ModeFilter.CompetitiveAndWingman => mode is "competitive" or "premier" or "scrimcomp2v2",
         _ => mode is "competitive" or "premier",
     };
-
-    private void StopValorantDetector()
-    {
-        var detector = _valorant;
-        _valorant = null;
-        detector?.Dispose();
-    }
-
-    private void UpdateValorantDetector()
-    {
-        bool shouldRun = Settings.ValorantEnabled && Ffmpeg is not null && SelectedMonitor is { DdaIndex: >= 0 } &&
-                         Ffmpeg.HasFilter("ddagrab") && IsProcessRunning(ValorantKillDetector.ProcessName);
-        if (shouldRun && _valorant is null)
-        {
-            try
-            {
-                var detector = new ValorantKillDetector(SelectedMonitor!, Settings);
-                detector.KillDetected += () =>
-                    _highlights.ReportKills(ValorantKillDetector.GameName, 1, 0, Settings.ValorantMinKills);
-                detector.Start(Ffmpeg!);
-                _valorant = detector;
-            }
-            catch (Exception ex)
-            {
-                Log.Warn("Valorant-Erkennung konnte nicht starten: " + ex.Message);
-            }
-        }
-        else if (!shouldRun && _valorant is not null)
-        {
-            StopValorantDetector();
-        }
-
-        if (!Settings.ValorantEnabled) ValorantStatusText = "Aus";
-        else if (_valorant is null) ValorantStatusText = "Wartet auf VALORANT";
-        else if (_valorant.TemplateCount == 0)
-            ValorantStatusText = $"Keine Vorlage: im Spiel nach einem Kill {Settings.HotkeyValorantCalibrate} drücken.";
-        else ValorantStatusText = $"Aktiv mit {_valorant.TemplateCount} Vorlage(n)";
-    }
-
-    private static bool IsProcessRunning(string name)
-    {
-        var processes = Process.GetProcessesByName(name);
-        foreach (var p in processes) p.Dispose();
-        return processes.Length > 0;
-    }
-
-    /// <summary>Hotkey handler: store the current kill-banner area as reference image.</summary>
-    public void CaptureValorantTemplate()
-    {
-        var detector = _valorant;
-        if (detector is null)
-        {
-            Notify?.Invoke("Keine Vorlage gespeichert", "Die VALORANT-Erkennung ist nicht aktiv (Spiel läuft nicht oder Funktion aus).");
-            return;
-        }
-        var path = detector.CaptureTemplate();
-        Notify?.Invoke(path is null ? "Keine Vorlage gespeichert" : "Vorlage gespeichert",
-                       path is null ? "Noch kein Bild vom Bannerbereich empfangen." : Path.GetFileName(path));
-        if (path is not null && Settings.PlaySoundOnSave) Sounds.PlaySaved();
-    }
-
-    public string ValorantTemplateFolder => _valorant?.TemplateFolder ?? AppPaths.ValorantTemplateDir;
 
     private void UpdateStats()
     {
@@ -921,7 +848,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
             SystemPeak = _audio.SystemPeak;
             MicPeak = _audio.MicPeak;
             ForegroundText = _games.ForegroundDescription;
-            ValorantScore = _valorant?.LastScore ?? 0;
 
             if (++_statsTick % 8 != 0) return; // the rest every 2 s
 
@@ -939,8 +865,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
                               $", {Cs2GameStateServer.ModeName(_cs2.LastMode)}{(Cs2ModeAllowed(_cs2.LastMode) ? "" : " (keine Highlights)")}")
                         : $"Letzte Daten vor {(DateTime.UtcNow - last).TotalMinutes:0} min";
             }
-
-            UpdateValorantDetector();
 
             // "Only while a game runs": stop 15 s after the game process ended.
             if (Settings.OnlyWhenGameRunning && (State == ReplayState.Running || State == ReplayState.Starting))
@@ -985,7 +909,6 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
         _statsTimer.Dispose();
         StopRecorder();
-        StopValorantDetector();
         _cs2?.Dispose();
         _highlights.Dispose();
         _games.Dispose();
