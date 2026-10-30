@@ -187,8 +187,9 @@ public sealed class ReplayBuffer
     /// <summary>
     /// Takes (at least) <paramref name="seconds"/> before <paramref name="anchor"/> (stream time of the
     /// hotkey press; null = end of buffer) up to the end of the buffer, starting at a keyframe.
+    /// With <paramref name="trimEnd"/> it stops at the fragment (GOP) that contains the anchor.
     /// </summary>
-    public ClipSnapshot? Snapshot(double seconds, double? anchor = null)
+    public ClipSnapshot? Snapshot(double seconds, double? anchor = null, bool trimEnd = false)
     {
         lock (_gate)
         {
@@ -206,7 +207,13 @@ public sealed class ReplayBuffer
             if (start < 0) start = _fragments.FindIndex(f => f.IsKeyframe);
             if (start < 0) return null;
 
-            var list = _fragments.GetRange(start, _fragments.Count - start);
+            int stop = _fragments.Count;
+            if (trimEnd && anchor is double cut)
+            {
+                stop = start + 1;
+                while (stop < _fragments.Count && _fragments[stop].Start < cut) stop++;
+            }
+            var list = _fragments.GetRange(start, stop - start);
             foreach (var f in list) f.AddRef();
             return new ClipSnapshot(_init, list);
         }

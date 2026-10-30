@@ -6,7 +6,9 @@ using ClipRing.Native;
 
 namespace ClipRing.Capture;
 
-public sealed record ClipRequest(double Seconds, string Game, DateTime Timestamp, string? Tag, string Reason);
+/// <param name="EndAtTimestamp">Cut the clip at <paramref name="Timestamp"/> (highlights); otherwise it runs to the newest frame.</param>
+public sealed record ClipRequest(double Seconds, string Game, DateTime Timestamp, string? Tag, string Reason,
+                                 bool EndAtTimestamp = false);
 
 public sealed record SavedClip(string FilePath, string Game, double DurationSeconds, long SizeBytes, string? Tag, DateTime SavedAt)
 {
@@ -39,7 +41,7 @@ public sealed class ClipSaver
         var anchor = buffer.WallToStream(request.Timestamp.ToUniversalTime());
         await WaitForStreamTimeAsync(buffer, anchor, TimeSpan.FromSeconds(settings.KeyframeIntervalSec * 2 + 2), ct);
 
-        using var snapshot = buffer.Snapshot(request.Seconds, anchor)
+        using var snapshot = buffer.Snapshot(request.Seconds, anchor, trimEnd: request.EndAtTimestamp)
             ?? throw new InvalidOperationException(Localization.Loc.T("Err_BufferEmpty"));
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);

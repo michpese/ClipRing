@@ -36,6 +36,9 @@ public sealed class Cs2GameStateServer : IDisposable
     /// <summary>kills, headshots, game mode (GSI map.mode, e.g. "competitive", "deathmatch")</summary>
     public event Action<int, int, string?>? KillsDetected;
 
+    /// <summary>No more kills possible this round: the player died, the round is over or the match ended.</summary>
+    public event Action? RoundEnded;
+
     public DateTime LastMessageUtc { get; private set; } = DateTime.MinValue;
     public string? LastMap { get; private set; }
     public string? LastMode { get; private set; }
@@ -162,13 +165,22 @@ public sealed class Cs2GameStateServer : IDisposable
             if (map.TryGetProperty("mode", out var md)) LastMode = md.GetString();
         }
         string? phase = root.TryGetProperty("map", out var m2) && m2.TryGetProperty("phase", out var ph) ? ph.GetString() : null;
+        string? roundPhase = root.TryGetProperty("round", out var round) && round.TryGetProperty("phase", out var rp) ? rp.GetString() : null;
 
-        if (!root.TryGetProperty("player", out var player)) return;
+        // Checked after the kills: the kill that ends a round (or a trade) comes in the same update.
+        bool died = ProcessPlayer(root, provider, phase);
+        if (died || phase == "gameover" || roundPhase is "over" or "freezetime") RoundEnded?.Invoke();
+    }
+
+    /// <returns>True if the player can't get more kills this round (dead, spectating, new round).</returns>
+    private bool ProcessPlayer(JsonElement root, string? provider, string? phase)
+    {
+        if (provider is null || !root.TryGetProperty("player", out var player)) return false;
         string? playerId = player.TryGetProperty("steamid", out var pid) ? pid.GetString() : null;
 
         // While dead and spectating, "player" is somebody else: keep our baseline untouched.
-        if (provider is null || playerId != provider) return;
-        if (!player.TryGetProperty("state", out var state)) return;
+        if (playerId != provider) return true;
+        if (!player.TryGetProperty("state", out var state)) return false;
 
         int roundKills = state.TryGetProperty("round_kills", out var rk) && rk.TryGetInt32(out var rkv) ? rkv : 0;
         int roundHs = state.TryGetProperty("round_killhs", out var rh) && rh.TryGetInt32(out var rhv) ? rhv : 0;
@@ -178,13 +190,16 @@ public sealed class Cs2GameStateServer : IDisposable
         _roundKills = roundKills;
         _roundHeadshots = roundHs;
 
-        if (previousKills is null) return;                 // first message: baseline only
-        if (roundKills <= previousKills) return;           // new round (reset) or nothing happened
-        if (_ignoreWarmup && phase == "warmup") return;
+        // First message: baseline only. Fewer kills than before: a new round started.
+        if (previousKills is not null && roundKills > previousKills && !(_ignoreWarmup && phase == "warmup"))
+        {
+            int kills = roundKills - previousKills.Value;
+            int headshots = Math.Max(0, roundHs - previousHs);
+            KillsDetected?.Invoke(kills, Math.Min(headshots, kills), LastMode);
+        }
 
-        int kills = roundKills - previousKills.Value;
-        int headshots = Math.Max(0, roundHs - previousHs);
-        KillsDetected?.Invoke(kills, Math.Min(headshots, kills), LastMode);
+        int health = state.TryGetProperty("health", out var hp) && hp.TryGetInt32(out var hpv) ? hpv : 100;
+        return health <= 0 || (previousKills is not null && roundKills < previousKills);
     }
 
     public void Dispose()

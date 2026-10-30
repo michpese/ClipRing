@@ -48,7 +48,7 @@ The language follows Windows. You can change it under **General → Language**.
 2. Restart CS2. The status changes to "Connected".
 3. Choose how many kills make a clip and in which modes.
 
-Kills in quick succession end up in one clip, named for example `…_3K.mp4` or `…_Ace.mp4`.
+All kills of a round end up in one clip, however far apart they are. It's named for example `…_3K.mp4` or `…_Ace.mp4` and saved as soon as you die or the round ends.
 
 ## Is it safe with VAC and FACEIT?
 

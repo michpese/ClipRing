@@ -287,7 +287,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         Settings.PropertyChanged += OnSettingsChanged;
         _games.CurrentChanged += OnGameChanged;
         _games.Start();
-        _highlights.ClipRequested += clip => _ = SaveClipAsync(clip.Seconds, clip.Tag, clip.Game, "Highlight");
+        _highlights.ClipRequested += clip => _ = SaveClipAsync(clip.Seconds, clip.Tag, clip.Game, "Highlight", clip.End);
         _audio.SyncLost += () => ScheduleRestart("Audio-Uhr", TimeSpan.FromSeconds(1), reprobe: false);
         _audio.Start();
         ApplyGains();
@@ -799,8 +799,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
     }
 
     // ================================================================ clips
+    /// <param name="end">Highlights: the clip ends at this moment instead of now.</param>
     public async Task<SavedClip?> SaveClipAsync(double seconds, string? tag = null, string? gameOverride = null,
-                                                string reason = "Hotkey")
+                                                string reason = "Hotkey", DateTime? end = null)
     {
         // Confirmation sounds only for saves the player triggered; automatic highlights stay silent.
         bool manual = reason != "Highlight";
@@ -815,7 +816,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
 
         string game = gameOverride ?? _games.ResolveForClip()?.DisplayName ?? "Desktop";
-        var request = new ClipRequest(Math.Min(seconds, Settings.BufferSeconds), game, DateTime.Now, tag, reason);
+        var request = new ClipRequest(Math.Min(seconds, Settings.BufferSeconds), game, end ?? DateTime.Now, tag, reason,
+                                      EndAtTimestamp: end is not null);
         IsSaving = true;
         try
         {
@@ -1020,6 +1022,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
                     _cs2IgnoredMode = null;
                     _highlights.ReportKills(Cs2GameStateServer.GameName, kills, hs, Settings.Cs2MinKills);
                 };
+                server.RoundEnded += _highlights.EndRound;
                 server.Start();
                 _cs2 = server;
             }

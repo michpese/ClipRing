@@ -48,7 +48,7 @@ Die Sprache richtet sich nach Windows. Ändern lässt sie sich unter **Allgemein
 2. CS2 neu starten. Der Status wechselt auf „Verbunden“.
 3. Auswählen, ab wie vielen Kills ein Clip entsteht und in welchen Modi.
 
-Kills kurz hintereinander landen in einem Clip, der zum Beispiel `…_3K.mp4` oder `…_Ace.mp4` heißt.
+Alle Kills einer Runde landen in einem Clip, egal wie weit sie auseinanderliegen. Er heißt zum Beispiel `…_3K.mp4` oder `…_Ace.mp4` und wird gespeichert, sobald du stirbst oder die Runde endet.
 
 ## Ist es sicher mit VAC und FACEIT?
 
