@@ -244,6 +244,9 @@
                                     <ComboBox Width="280" ItemsSource="{Binding ResolutionOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Resolution}" />
                                 </ui:SettingRow>
+                                <ui:SettingRow Title="{l:T Row_StretchToScreen}" Description="{l:T Desc_StretchToScreen}">
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.StretchToScreen}" />
+                                </ui:SettingRow>
                                 <ui:SettingRow Title="{l:T Row_FrameRate}" Description="{l:T Desc_FrameRate}">
                                     <ComboBox Width="280" ItemsSource="{Binding FpsOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.Fps}" />

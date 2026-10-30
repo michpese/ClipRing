@@ -59,6 +59,10 @@ public sealed class AppSettings : ObservableObject
     private bool _captureCursor = true;
     public bool CaptureCursor { get => _captureCursor; set => Set(ref _captureCursor, value); }
 
+    private bool _stretchToScreen = true;
+    /// <summary>Widen modes that don't match the panel's aspect ratio (4:3 stretched) to the panel's format.</summary>
+    public bool StretchToScreen { get => _stretchToScreen; set => Set(ref _stretchToScreen, value); }
+
     private bool _rememberPerMonitorMode = true;
     /// <summary>Frame rate and resolution are kept per monitor mode (e.g. 4K 240 Hz vs 1080p 480 Hz).</summary>
     public bool RememberPerMonitorMode { get => _rememberPerMonitorMode; set => Set(ref _rememberPerMonitorMode, value); }
@@ -203,7 +207,7 @@ public sealed class AppSettings : ObservableObject
     /// <summary>Names of properties whose change requires restarting the capture pipeline.</summary>
     public static readonly HashSet<string> PipelineProperties = new()
     {
-        nameof(CaptureMethod), nameof(Resolution), nameof(Fps), nameof(Codec), nameof(Encoder),
+        nameof(CaptureMethod), nameof(Resolution), nameof(StretchToScreen), nameof(Fps), nameof(Codec), nameof(Encoder),
         nameof(Quality), nameof(CustomBitrateKbps), nameof(RateControl), nameof(Speed),
         nameof(KeyframeIntervalSec), nameof(CaptureCursor), nameof(AudioBitrateKbps),
         nameof(AudioOffsetMs), nameof(FfmpegPath),

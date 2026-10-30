@@ -9,8 +9,9 @@ namespace ClipRing.Capture;
 /// <param name="DeviceName">Windows device name such as \\.\DISPLAY1, stable across restarts.</param>
 /// <param name="DdaIndex">Matching ddagrab output_idx (Desktop Duplication order), or -1 if none.</param>
 /// <param name="RefreshHz">Current refresh rate, 0 if unknown. Graphics Capture can't deliver more frames than this.</param>
+/// <param name="NativeWidth">Largest mode of the monitor (its panel size), 0 if unknown; gives the real aspect ratio.</param>
 public sealed record MonitorInfo(int Index, int Width, int Height, string DeviceName, bool IsPrimary, int DdaIndex,
-                                 int RefreshHz = 0)
+                                 int RefreshHz = 0, int NativeWidth = 0, int NativeHeight = 0)
 {
     public string Label => $"Monitor {Index + 1}: {Width} × {Height}" +
                            (RefreshHz > 0 ? $", {RefreshHz} Hz" : "") +
@@ -63,11 +64,13 @@ public static partial class DisplayProbe
         for (int i = 0; i < windows.Count; i++)
         {
             var w = windows[i];
-            result.Add(new MonitorInfo(i, w.Width, w.Height, w.Device, w.Primary, ddaIndex[i], w.RefreshHz));
+            var (nativeWidth, nativeHeight) = Win32.LargestMode(w.Device);
+            result.Add(new MonitorInfo(i, w.Width, w.Height, w.Device, w.Primary, ddaIndex[i], w.RefreshHz, nativeWidth, nativeHeight));
         }
 
         Log.Info("Monitore: " + string.Join("; ", result.Select(m =>
-            $"{m.Label} [{m.DeviceName}, DDA {(m.DdaIndex < 0 ? "-" : m.DdaIndex.ToString(CultureInfo.InvariantCulture))}]")));
+            $"{m.Label} [{m.DeviceName}, DDA {(m.DdaIndex < 0 ? "-" : m.DdaIndex.ToString(CultureInfo.InvariantCulture))}, " +
+            $"nativ {m.NativeWidth}x{m.NativeHeight}]")));
         return result;
     }
 

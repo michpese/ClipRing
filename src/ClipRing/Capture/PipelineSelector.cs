@@ -12,7 +12,7 @@ public static class PipelineSelector
 {
     public static string CacheKey(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
     {
-        var (ow, oh) = PipelineBuilder.OutputSize(s.Resolution, mon.Width, mon.Height);
+        var (ow, oh) = PipelineBuilder.OutputSize(s, mon);
         return $"{ff.Path}|{ff.Version}|{mon.DeviceName}|{mon.Index}|{mon.DdaIndex}|{mon.Width}x{mon.Height}|{ow}x{oh}|" +
                $"{s.Fps}|{s.Codec}|{s.Encoder}|{s.CaptureMethod}";
     }

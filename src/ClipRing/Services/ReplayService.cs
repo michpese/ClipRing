@@ -226,7 +226,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         get
         {
             var m = SelectedMonitor;
-            return m is null ? (1920, 1080) : PipelineBuilder.OutputSize(Settings.Resolution, m.Width, m.Height);
+            return m is null ? (1920, 1080) : PipelineBuilder.OutputSize(Settings, m);
         }
     }
 

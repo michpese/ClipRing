@@ -132,6 +132,30 @@ internal static class Win32
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "EnumDisplaySettingsW")]
     public static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE mode);
 
+    /// <summary>
+    /// The largest mode a display offers, i.e. its native panel size (DSR/VSR modes are larger but keep the
+    /// aspect ratio). Used to know a 16:9 monitor is 16:9 while a game has switched it to 1280 × 960.
+    /// </summary>
+    public static (int Width, int Height) LargestMode(string deviceName)
+    {
+        int bestWidth = 0, bestHeight = 0;
+        long bestArea = 0;
+        try
+        {
+            var mode = new DEVMODE { dmDeviceName = "", dmFormName = "", dmSize = (ushort)Marshal.SizeOf<DEVMODE>() };
+            for (int i = 0; i < 4000 && EnumDisplaySettings(deviceName, i, ref mode); i++)
+            {
+                long area = (long)mode.dmPelsWidth * mode.dmPelsHeight;
+                if (area <= bestArea) continue;
+                bestArea = area;
+                bestWidth = (int)mode.dmPelsWidth;
+                bestHeight = (int)mode.dmPelsHeight;
+            }
+        }
+        catch { /* unknown */ }
+        return (bestWidth, bestHeight);
+    }
+
     /// <summary>Current refresh rate of a display device in Hz, or 0 if unknown.</summary>
     public static int GetRefreshRate(string deviceName)
     {

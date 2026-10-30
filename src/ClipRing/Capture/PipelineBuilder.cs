@@ -74,6 +74,32 @@ public static class PipelineBuilder
         };
     }
 
+    /// <summary>
+    /// Size of the recording for this monitor and these settings: the picture as it appears on the panel
+    /// (see <see cref="DisplaySize"/>), scaled down to the chosen resolution.
+    /// </summary>
+    public static (int Width, int Height) OutputSize(AppSettings s, MonitorInfo mon)
+    {
+        var (width, height) = DisplaySize(mon, s);
+        return OutputSize(s.Resolution, width, height);
+    }
+
+    /// <summary>
+    /// With "stretch to screen": a mode whose aspect ratio differs from the panel's (4:3 like 1280 × 960 on a
+    /// 16:9 monitor, as CS2 players use it stretched) is widened to the panel's aspect ratio at the same height,
+    /// so the clip looks like the game did on the monitor. 1280 × 960 → 1706 × 960.
+    /// </summary>
+    public static (int Width, int Height) DisplaySize(MonitorInfo mon, AppSettings s)
+    {
+        if (!s.StretchToScreen || mon.NativeWidth <= 0 || mon.NativeHeight <= 0 || mon.Height <= 0)
+            return (mon.Width, mon.Height);
+        double panel = (double)mon.NativeWidth / mon.NativeHeight;
+        double current = (double)mon.Width / mon.Height;
+        if (Math.Abs(panel - current) / panel < 0.02) return (mon.Width, mon.Height);
+        int width = (int)Math.Round(mon.Height * panel / 2.0) * 2;
+        return (width, mon.Height);
+    }
+
     public static (int Width, int Height) OutputSize(ResolutionMode mode, int nativeWidth, int nativeHeight)
     {
         int targetHeight = mode switch
@@ -227,7 +253,7 @@ public static class PipelineBuilder
         string encoder = EncoderName(backend, s.Codec);
         if (!ff.HasEncoder(encoder)) yield break;
 
-        var (ow, oh) = OutputSize(s.Resolution, mon.Width, mon.Height);
+        var (ow, oh) = OutputSize(s, mon);
         bool scale = ow != mon.Width || oh != mon.Height;
         int kbps = ComputeBitrateKbps(s, ow, oh);
         var encArgs = EncoderArgs(backend, s.Codec, encoder, kbps, s);
