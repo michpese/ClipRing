@@ -10,10 +10,13 @@ namespace ClipRing.Capture;
 /// </summary>
 public static class PipelineSelector
 {
+    /// <summary>Raised when the candidate list changes, so cached winners from older versions are re-tested.</summary>
+    private const int CandidateVersion = 2;
+
     public static string CacheKey(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
     {
         var (ow, oh) = PipelineBuilder.OutputSize(s, mon);
-        return $"{ff.Path}|{ff.Version}|{mon.DeviceName}|{mon.Index}|{mon.DdaIndex}|{mon.Width}x{mon.Height}|{ow}x{oh}|" +
+        return $"v{CandidateVersion}|{ff.Path}|{ff.Version}|{mon.DeviceName}|{mon.Index}|{mon.DdaIndex}|{mon.Width}x{mon.Height}|{ow}x{oh}|" +
                $"{s.Fps}|{s.Codec}|{s.Encoder}|{s.CaptureMethod}";
     }
 

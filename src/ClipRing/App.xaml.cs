@@ -114,13 +114,24 @@ public partial class App : Application
                 lines.Add($"gfxcapture={info?.HasFilter("gfxcapture") ?? false}");
                 lines.Add($"ddagrab={info?.HasFilter("ddagrab") ?? false}");
                 lines.Add($"av1_nvenc={info?.HasEncoder("av1_nvenc") ?? false}");
+                // Stretching and downscaling rely on gfxcapture's own scaler (width/height/resize_mode=scale).
+                bool captureScale = true;
+                if (info?.HasFilter("gfxcapture") == true)
+                {
+                    var help = await Capture.ProcessRunner.RunAsync(path, new[] { "-hide_banner", "-h", "filter=gfxcapture" },
+                                                                    TimeSpan.FromSeconds(10), default);
+                    string text = help.StdOut + help.StdErr;
+                    captureScale = new[] { "width", "height", "resize_mode", "scale" }
+                        .All(o => System.Text.RegularExpressions.Regex.IsMatch(text, $@"(?m)^\s+{o}\b"));
+                    lines.Add($"gfxcaptureScale={captureScale}");
+                }
                 if (info is not null)
                 {
                     // No GPU on the build machine: every hardware test must fail cleanly, not hang or crash.
                     var caps = await Capture.EncoderProbe.GetAsync(info, force: true);
                     lines.Add("hardware=" + caps.Describe().Replace("\n", "; "));
                 }
-                if (info is not null && again == path && (info.HasFilter("gfxcapture") || info.HasFilter("ddagrab"))) code = 0;
+                if (info is not null && again == path && captureScale && (info.HasFilter("gfxcapture") || info.HasFilter("ddagrab"))) code = 0;
             }
         }
         catch (Exception ex)

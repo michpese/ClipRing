@@ -185,6 +185,7 @@
   "Path_CpuConvert": "CPU conversion",
   "Path_GpuDirect": "GPU, zero-copy",
   "Path_GpuScale": "GPU scaling",
+  "Path_CaptureScale": "GPU, scaled during capture",
   "Path_GpuScaleAmf": "GPU scaling (AMF)",
   "Path_GpuScaleQsv": "GPU scaling (QSV)",
   "Row_AudioBitrate": "Audio bitrate",

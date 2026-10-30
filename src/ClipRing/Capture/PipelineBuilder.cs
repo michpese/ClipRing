@@ -18,6 +18,12 @@ public sealed record PipelineSpec
     public IReadOnlyList<string> ColorArgs { get; init; } = Array.Empty<string>();
     public required int OutWidth { get; init; }
     public required int OutHeight { get; init; }
+    /// <summary>
+    /// Size Graphics Capture itself scales every frame to (on the GPU, before any filter); 0 = source size.
+    /// Used to stretch 4:3 and to downscale without a separate scaling filter.
+    /// </summary>
+    public int CaptureWidth { get; init; }
+    public int CaptureHeight { get; init; }
     public required int BitrateKbps { get; init; }
     /// <summary>Localization key describing the frame path (e.g. Path_GpuDirect).</summary>
     public required string PathKey { get; init; }
@@ -170,9 +176,15 @@ public static class PipelineBuilder
     /// one comes a whole refresh later, which gave ~100 instead of 120 fps. So capture is allowed at twice the
     /// target and <see cref="Pacing"/> thins it out to one frame per 1/fps slot.
     /// </summary>
-    public static string Gfxcapture(int monitorIndex, int fps, bool cursor)
-        => $"gfxcapture=monitor_idx={monitorIndex}:max_framerate={WgcCaptureRate(fps)}" +
+    /// <param name="width">Output size; gfxcapture scales (stretches) the monitor image to it. 0 = monitor size.</param>
+    public static string Gfxcapture(int monitorIndex, int fps, bool cursor, int width = 0, int height = 0)
+        => $"gfxcapture=monitor_idx={monitorIndex}" + CaptureSize(width, height) + $":max_framerate={WgcCaptureRate(fps)}" +
            $":capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+
+    private static string CaptureSize(int width, int height)
+        => width > 0 && height > 0
+            ? $":width={width.ToString(CultureInfo.InvariantCulture)}:height={height.ToString(CultureInfo.InvariantCulture)}:resize_mode=scale"
+            : "";
 
     public static int WgcCaptureRate(int fps) => Math.Clamp(fps * 2, 1, 1000);
 
@@ -184,8 +196,8 @@ public static class PipelineBuilder
     /// fullscreen game window has exactly that size anyway.
     /// </summary>
     public static string GfxcaptureWindow(nint hwnd, int width, int height, int fps, bool cursor)
-        => $"gfxcapture=hwnd={((ulong)hwnd).ToString(CultureInfo.InvariantCulture)}:width={width}:height={height}" +
-           $":resize_mode=scale:max_framerate={WgcCaptureRate(fps)}:capture_cursor={(cursor ? 1 : 0)}:display_border=0";
+        => $"gfxcapture=hwnd={((ulong)hwnd).ToString(CultureInfo.InvariantCulture)}" + CaptureSize(width, height) +
+           $":max_framerate={WgcCaptureRate(fps)}:capture_cursor={(cursor ? 1 : 0)}:display_border=0";
 
     /// <summary>
     /// Both capture paths deliver frames faster than the target and only when the screen changes. This keeps
@@ -205,11 +217,14 @@ public static class PipelineBuilder
     /// stripped at the end, so encoders take their rate-control frame rate from the 1/fps time base; otherwise
     /// NVENC would plan for 240 or 500 frames per second and reach a fraction of the bitrate.
     /// Stripped last because vpp_qsv and friends read the frame rate.
+    /// Square pixels are set explicitly: swscale keeps the display aspect when it stretches (1440x1080 to
+    /// 1920x1080 became SAR 3:4, DAR 4:3), and players then showed the stretched clip with black bars again.
     /// </summary>
     public static string VideoFilterChain(PipelineSpec p, int fps)
     {
         var parts = new List<string> { Pacing(fps) };
         if (!string.IsNullOrEmpty(p.VideoFilter)) parts.Add(p.VideoFilter);
+        parts.Add("setsar=1");
         parts.Add("setpts=strip_fps=1");
         return string.Join(',', parts);
     }
@@ -220,7 +235,7 @@ public static class PipelineBuilder
     /// <param name="test">Encoder tests duplicate frames on a still desktop instead of waiting for a change.</param>
     public static string SourceGraph(PipelineSpec p, MonitorInfo mon, int fps, bool cursor, bool test = false)
         => p.Source == VideoSource.Wgc
-            ? Gfxcapture(mon.Index, fps, cursor)
+            ? Gfxcapture(mon.Index, fps, cursor, p.CaptureWidth, p.CaptureHeight)
             : Ddagrab(mon.DdaIndex, DdaCaptureRate(fps, mon.RefreshHz), cursor, dupFrames: test);
 
     /// <summary>Capture sources to try, preferred first.</summary>
@@ -264,7 +279,7 @@ public static class PipelineBuilder
 
         string prefix = source == VideoSource.Wgc ? "wgc/" : "dda/";
         PipelineSpec Make(string id, string? filter, string pathKey, IReadOnlyList<string>? color = null,
-                          IReadOnlyList<string>? global = null) => new()
+                          IReadOnlyList<string>? global = null, bool captureScale = false) => new()
         {
             Id = prefix + id,
             Source = source,
@@ -277,14 +292,22 @@ public static class PipelineBuilder
             GlobalArgs = global ?? Array.Empty<string>(),
             OutWidth = ow,
             OutHeight = oh,
+            CaptureWidth = captureScale ? ow : 0,
+            CaptureHeight = captureScale ? oh : 0,
             BitrateKbps = kbps,
             PathKey = pathKey,
         };
+
+        // Graphics Capture can scale while capturing, entirely on the GPU, and hands the encoder frames of the
+        // final size: zero-copy like the direct path. Tried first; scale_d3d11 failed with NVENC on some systems
+        // (EINVAL), which left only the slow CPU path.
+        bool wgcScale = scale && source == VideoSource.Wgc;
 
         switch (backend)
         {
             case EncoderBackend.Nvenc:
                 if (!scale) yield return Make("nvenc/direct", null, "Path_GpuDirect");
+                if (wgcScale) yield return Make("nvenc/capture_scale", null, "Path_CaptureScale", captureScale: true);
                 if (scale && ff.HasFilter("scale_d3d11"))
                     yield return Make("nvenc/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "Path_GpuScale");
                 yield return Make("nvenc/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
@@ -292,6 +315,7 @@ public static class PipelineBuilder
 
             case EncoderBackend.Amf:
                 if (!scale) yield return Make("amf/direct", null, "Path_GpuDirect");
+                if (wgcScale) yield return Make("amf/capture_scale", null, "Path_CaptureScale", captureScale: true);
                 if (scale && ff.HasFilter("vpp_amf"))
                     yield return Make("amf/vpp_amf", $"vpp_amf=w={ow}:h={oh}:format=nv12", "Path_GpuScaleAmf");
                 if (scale && ff.HasFilter("scale_d3d11"))
@@ -300,6 +324,9 @@ public static class PipelineBuilder
                 break;
 
             case EncoderBackend.Qsv:
+                if (wgcScale && ff.HasFilter("vpp_qsv") && ff.HasFilter("hwmap"))
+                    yield return Make("qsv/capture_scale", "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12",
+                                      "Path_CaptureScale", captureScale: true);
                 if (ff.HasFilter("vpp_qsv") && ff.HasFilter("hwmap"))
                 {
                     string size = scale ? $":w={ow}:h={oh}" : "";
@@ -430,7 +457,8 @@ public static class PipelineBuilder
         if (audio)
             a.AddRange(new[] { "-itsoffset", (-audioStartUnix!.Value).ToString("F6", CultureInfo.InvariantCulture) });
         string source = gameWindow != 0 && p.Source == VideoSource.Wgc
-            ? GfxcaptureWindow(gameWindow, mon.Width, mon.Height, s.Fps, s.CaptureCursor)
+            ? GfxcaptureWindow(gameWindow, p.CaptureWidth > 0 ? p.CaptureWidth : mon.Width,
+                               p.CaptureHeight > 0 ? p.CaptureHeight : mon.Height, s.Fps, s.CaptureCursor)
             : SourceGraph(p, mon, s.Fps, s.CaptureCursor);
         a.AddRange(new[] { "-use_wallclock_as_timestamps", "1", "-f", "lavfi", "-i", source });
 
