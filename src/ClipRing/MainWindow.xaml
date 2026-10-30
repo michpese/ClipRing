@@ -253,8 +253,11 @@
                                     <ComboBox Width="280" ItemsSource="{Binding CaptureMethodOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.CaptureMethod}" />
                                 </ui:SettingRow>
-                                <ui:SettingRow Title="{l:T Row_RecordCursor}" ShowDivider="False">
+                                <ui:SettingRow Title="{l:T Row_RecordCursor}">
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CaptureCursor}" />
+                                </ui:SettingRow>
+                                <ui:SettingRow Title="{l:T Row_PerMonitorMode}" Description="{l:T Desc_PerMonitorMode}" ShowDivider="False">
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.RememberPerMonitorMode}" />
                                 </ui:SettingRow>
                             </StackPanel>
                         </Border>

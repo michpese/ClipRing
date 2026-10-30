@@ -32,7 +32,7 @@ public sealed class AppSettings : ObservableObject
     public ResolutionMode Resolution { get => _resolution; set => Set(ref _resolution, value); }
 
     private int _fps = 60;
-    public int Fps { get => _fps; set => Set(ref _fps, Math.Clamp(value, 10, 360)); }
+    public int Fps { get => _fps; set => Set(ref _fps, Math.Clamp(value, 10, 480)); }
 
     private VideoCodec _codec = VideoCodec.H264;
     public VideoCodec Codec { get => _codec; set => Set(ref _codec, value); }
@@ -58,6 +58,13 @@ public sealed class AppSettings : ObservableObject
 
     private bool _captureCursor = true;
     public bool CaptureCursor { get => _captureCursor; set => Set(ref _captureCursor, value); }
+
+    private bool _rememberPerMonitorMode = true;
+    /// <summary>Frame rate and resolution are kept per monitor mode (e.g. 4K 240 Hz vs 1080p 480 Hz).</summary>
+    public bool RememberPerMonitorMode { get => _rememberPerMonitorMode; set => Set(ref _rememberPerMonitorMode, value); }
+
+    /// <summary>"3840x2160@240" → frame rate and resolution last used in that monitor mode.</summary>
+    public Dictionary<string, MonitorModeProfile> MonitorModeProfiles { get; set; } = new();
 
     private int _bufferSeconds = 120;
     public int BufferSeconds { get => _bufferSeconds; set => Set(ref _bufferSeconds, Math.Clamp(value, 10, 1200)); }
@@ -217,4 +224,10 @@ public sealed class AppSettings : ObservableObject
     {
         nameof(HotkeySave), nameof(HotkeySaveShort), nameof(HotkeyToggle),
     };
+}
+
+public sealed class MonitorModeProfile
+{
+    public int Fps { get; set; }
+    public ResolutionMode Resolution { get; set; }
 }

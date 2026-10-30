@@ -52,6 +52,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private bool _audioFallback;
     private ReplayRecorder? _slowEncoderWarnedFor;
 
+    // Monitor mode the running recording was built for, and a changed mode seen once (confirmed on the next check).
+    private MonitorInfo? _recordingMonitor;
+    private string? _pendingModeKey;
+    private int _modeChangeBusy;
+
     // "Spielfenster": window being recorded (0 = monitor), and a window that could not be recorded.
     private nint _recordingWindow;
     private nint _windowCaptureFailed;
@@ -326,7 +331,111 @@ public sealed class ReplayService : ObservableObject, IDisposable
             SetError(() => Loc.T("Err_NoMonitor"));
             return false;
         }
+        // The recording starts right after this: no extra restart from settings the profile changed.
+        if (SelectedMonitor is { } monitor && ApplyMonitorModeProfile(monitor))
+        {
+            lock (_timerGate)
+            {
+                _restartTimer?.Dispose();
+                _restartTimer = null;
+            }
+        }
         return true;
+    }
+
+    private static string ModeKey(int width, int height, int hz) => $"{width}x{height}@{hz}";
+
+    private static string ModeKey(MonitorInfo m) => ModeKey(m.Width, m.Height, m.RefreshHz);
+
+    /// <summary>
+    /// Every 2 s: has the selected monitor switched to another resolution or refresh rate (a game in
+    /// exclusive fullscreen, Windows display settings, or a dual-mode monitor switching between e.g. 4K 240 Hz
+    /// and 1080p 480 Hz)? Graphics Capture keeps the size it started with, so the recording must be rebuilt.
+    /// A new mode has to be seen twice in a row, because a switch takes a moment to settle.
+    /// </summary>
+    private void CheckMonitorMode()
+    {
+        var probed = SelectedMonitor;
+        if (probed is null || Ffmpeg is null || Volatile.Read(ref _modeChangeBusy) == 1) return;
+
+        var live = Win32.EnumerateMonitors();
+        var match = live.FirstOrDefault(m => m.Device == probed.DeviceName);
+        string liveKey = match.Device is null ? "gone" : ModeKey(match.Width, match.Height, match.RefreshHz);
+        if (liveKey == ModeKey(probed))
+        {
+            _pendingModeKey = null;
+            return;
+        }
+        if (_pendingModeKey != liveKey)
+        {
+            _pendingModeKey = liveKey;
+            return;
+        }
+
+        _pendingModeKey = null;
+        if (Interlocked.Exchange(ref _modeChangeBusy, 1) == 1) return;
+        _ = Task.Run(async () =>
+        {
+            try { await OnMonitorModeChangedAsync(probed); }
+            catch (Exception ex) { Log.Error("Monitormodus-Wechsel nicht verarbeitet", ex); }
+            finally { Volatile.Write(ref _modeChangeBusy, 0); }
+        });
+    }
+
+    private async Task OnMonitorModeChangedAsync(MonitorInfo before)
+    {
+        await RefreshMonitorsAsync();
+        var after = SelectedMonitor;
+        if (after is null) return;
+        Log.Info($"Monitormodus gewechselt: {before.Width}x{before.Height} {before.RefreshHz} Hz → " +
+                 $"{after.Width}x{after.Height} {after.RefreshHz} Hz ({after.DeviceName})");
+        ApplyMonitorModeProfile(after);
+        Notify?.Invoke(Loc.T("Notify_ModeChangedTitle"),
+                       Loc.F("Notify_ModeChanged", after.Width, after.Height, after.RefreshHz, Settings.Fps));
+        if (_recorder is not null || State is ReplayState.Running or ReplayState.Starting or ReplayState.Error)
+            ScheduleRestart("Monitormodus", TimeSpan.FromMilliseconds(300), reprobe: false);
+    }
+
+    private bool _applyingModeProfile;
+
+    /// <summary>
+    /// Takes over frame rate and resolution remembered for this monitor mode. Without a stored profile,
+    /// a frame rate above the new refresh rate is lowered to the highest one the monitor can show.
+    /// </summary>
+    /// <returns>True if frame rate or resolution changed.</returns>
+    private bool ApplyMonitorModeProfile(MonitorInfo monitor)
+    {
+        if (!Settings.RememberPerMonitorMode) return false;
+        var (fpsBefore, resolutionBefore) = (Settings.Fps, Settings.Resolution);
+        _applyingModeProfile = true;
+        try
+        {
+            if (Settings.MonitorModeProfiles.TryGetValue(ModeKey(monitor), out var profile))
+            {
+                if (profile.Fps != Settings.Fps || profile.Resolution != Settings.Resolution)
+                    Log.Info($"Einstellungen für {ModeKey(monitor)} übernommen: {profile.Fps} fps, {profile.Resolution}");
+                Settings.Fps = profile.Fps;
+                Settings.Resolution = profile.Resolution;
+            }
+            else if (monitor.RefreshHz > 0 && Settings.Fps > monitor.RefreshHz + 1)
+            {
+                int[] common = { 30, 48, 60, 90, 120, 144, 165, 240, 360, 480 };
+                Settings.Fps = common.Where(f => f <= monitor.RefreshHz + 1).DefaultIfEmpty(monitor.RefreshHz).Max();
+            }
+        }
+        finally
+        {
+            _applyingModeProfile = false;
+        }
+        RememberMonitorModeProfile();
+        return Settings.Fps != fpsBefore || Settings.Resolution != resolutionBefore;
+    }
+
+    private void RememberMonitorModeProfile()
+    {
+        if (!Settings.RememberPerMonitorMode || SelectedMonitor is not { } monitor) return;
+        Settings.MonitorModeProfiles[ModeKey(monitor)] = new MonitorModeProfile { Fps = Settings.Fps, Resolution = Settings.Resolution };
+        ScheduleSettingsSave();
     }
 
     /// <summary>
@@ -432,6 +541,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         var recorder = _recorder;
         _recorder = null;
+        _recordingMonitor = null;
         if (recorder is null) return;
         recorder.Stop();
         recorder.Dispose();
@@ -505,6 +615,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             _pipeline = pipeline;
             _pipelineHasAudio = withAudio;
             _recordingWindow = window;
+            _recordingMonitor = monitor;
             try
             {
                 recorder.Start(Ffmpeg.Path, args, withAudio ? _audio : null);
@@ -778,6 +889,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (AppSettings.PipelineProperties.Contains(name))
         {
             NotifyEstimates();
+            if (!_applyingModeProfile && name is nameof(AppSettings.Fps) or nameof(AppSettings.Resolution))
+                RememberMonitorModeProfile();
             // An encoder chosen by hand that cannot do the new codec: back to automatic.
             if (name == nameof(AppSettings.Codec) && Settings.Encoder != EncoderBackend.Auto &&
                 !Capabilities.Usable(Settings.Encoder, Settings.Codec))
@@ -951,6 +1064,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             if (++_statsTick % 8 != 0) return; // the rest every 2 s
 
             CheckRecorderWatchdog();
+            CheckMonitorMode();
             CheckEncoderSpeed();
 
             if (_cs2 is { } cs2) SetCs2Status(() => DescribeCs2(cs2));

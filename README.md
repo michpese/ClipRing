@@ -14,7 +14,8 @@ It works like **NVIDIA ShadowPlay (Instant Replay)** or **AMD ReLive**, but it i
 
 - **Instant replay:** keeps the last 15 seconds to 10 minutes. One hotkey saves everything, another saves only the last seconds.
 - **Barely costs FPS:** recording runs on your graphics card's video encoder (NVIDIA, AMD or Intel), not on the CPU.
-- **Sharp and smooth:** up to 4K and 240 fps, as H.264, HEVC or AV1. Options your PC can't handle are greyed out.
+- **Sharp and smooth:** up to 4K, and up to 480 fps on fast monitors, as H.264, HEVC or AV1. Options your PC can't handle are greyed out.
+- **Dual-mode monitors:** if your monitor switches between e.g. 4K 240 Hz and 1080p 480 Hz, ClipRing follows the switch and remembers frame rate and resolution for each mode.
 - **Automatic CS2 highlights:** 2K, 3K, 4K and aces are saved on their own. By default only in Competitive and Premier, so deathmatch doesn't flood your folder.
 - **Tidy clips:** every game gets its own folder, and files are named after the game, date and time.
 - **Game and microphone audio,** each with its own volume.

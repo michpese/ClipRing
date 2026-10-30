@@ -97,7 +97,7 @@ public sealed class MainViewModel : ObservableObject
             O(ResolutionMode.Native, "Opt_ResNative"), (ResolutionMode.P2160, "2160p (4K)"), (ResolutionMode.P1440, "1440p"),
             (ResolutionMode.P1080, "1080p"), (ResolutionMode.P720, "720p"),
         });
-        var fps = new List<int> { 30, 48, 60, 90, 120, 144, 165, 240 };
+        var fps = new List<int> { 30, 48, 60, 90, 120, 144, 165, 240, 360, 480 };
         if (!fps.Contains(Settings.Fps)) fps.Add(Settings.Fps);
         FpsOptions.Update(fps.OrderBy(v => v).Select(v => (v, $"{v} fps")));
         CaptureMethodOptions.Update(new[]
