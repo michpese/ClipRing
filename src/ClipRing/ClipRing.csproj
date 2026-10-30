@@ -14,7 +14,7 @@
     <AssemblyName>ClipRing</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\ClipRing.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Product>ClipRing</Product>
     <Description>Instant-Replay-Rekorder mit RAM-Puffer</Description>
     <SatelliteResourceLanguages>de;en</SatelliteResourceLanguages>
