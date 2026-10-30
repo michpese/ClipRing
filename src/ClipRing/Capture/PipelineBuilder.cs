@@ -269,7 +269,14 @@ public static class PipelineBuilder
         if (!ff.HasEncoder(encoder)) yield break;
 
         var (ow, oh) = OutputSize(s, mon);
-        bool scale = ow != mon.Width || oh != mon.Height;
+        // Graphics Capture delivers every frame at the output size: it scales (and stretches 4:3) while capturing,
+        // on the GPU, and keeps that size when the monitor switches modes, so the recording can simply carry on.
+        // scale_d3d11 failed with NVENC on some systems (EINVAL) and left only the slow CPU path.
+        // Only Desktop Duplication needs a scaling filter.
+        bool wgc = source == VideoSource.Wgc;
+        bool resized = ow != mon.Width || oh != mon.Height;
+        bool scale = resized && !wgc;
+        string directPath = resized ? "Path_CaptureScale" : "Path_GpuDirect";
         int kbps = ComputeBitrateKbps(s, ow, oh);
         var encArgs = EncoderArgs(backend, s.Codec, encoder, kbps, s);
 
@@ -279,7 +286,7 @@ public static class PipelineBuilder
 
         string prefix = source == VideoSource.Wgc ? "wgc/" : "dda/";
         PipelineSpec Make(string id, string? filter, string pathKey, IReadOnlyList<string>? color = null,
-                          IReadOnlyList<string>? global = null, bool captureScale = false) => new()
+                          IReadOnlyList<string>? global = null) => new()
         {
             Id = prefix + id,
             Source = source,
@@ -292,30 +299,23 @@ public static class PipelineBuilder
             GlobalArgs = global ?? Array.Empty<string>(),
             OutWidth = ow,
             OutHeight = oh,
-            CaptureWidth = captureScale ? ow : 0,
-            CaptureHeight = captureScale ? oh : 0,
+            CaptureWidth = wgc ? ow : 0,
+            CaptureHeight = wgc ? oh : 0,
             BitrateKbps = kbps,
             PathKey = pathKey,
         };
 
-        // Graphics Capture can scale while capturing, entirely on the GPU, and hands the encoder frames of the
-        // final size: zero-copy like the direct path. Tried first; scale_d3d11 failed with NVENC on some systems
-        // (EINVAL), which left only the slow CPU path.
-        bool wgcScale = scale && source == VideoSource.Wgc;
-
         switch (backend)
         {
             case EncoderBackend.Nvenc:
-                if (!scale) yield return Make("nvenc/direct", null, "Path_GpuDirect");
-                if (wgcScale) yield return Make("nvenc/capture_scale", null, "Path_CaptureScale", captureScale: true);
+                if (!scale) yield return Make("nvenc/direct", null, directPath);
                 if (scale && ff.HasFilter("scale_d3d11"))
                     yield return Make("nvenc/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "Path_GpuScale");
                 yield return Make("nvenc/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;
 
             case EncoderBackend.Amf:
-                if (!scale) yield return Make("amf/direct", null, "Path_GpuDirect");
-                if (wgcScale) yield return Make("amf/capture_scale", null, "Path_CaptureScale", captureScale: true);
+                if (!scale) yield return Make("amf/direct", null, directPath);
                 if (scale && ff.HasFilter("vpp_amf"))
                     yield return Make("amf/vpp_amf", $"vpp_amf=w={ow}:h={oh}:format=nv12", "Path_GpuScaleAmf");
                 if (scale && ff.HasFilter("scale_d3d11"))
@@ -324,14 +324,11 @@ public static class PipelineBuilder
                 break;
 
             case EncoderBackend.Qsv:
-                if (wgcScale && ff.HasFilter("vpp_qsv") && ff.HasFilter("hwmap"))
-                    yield return Make("qsv/capture_scale", "hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12",
-                                      "Path_CaptureScale", captureScale: true);
                 if (ff.HasFilter("vpp_qsv") && ff.HasFilter("hwmap"))
                 {
                     string size = scale ? $":w={ow}:h={oh}" : "";
                     yield return Make("qsv/vpp_qsv", $"hwmap=derive_device=qsv,format=qsv,vpp_qsv=format=nv12{size}",
-                                      scale ? "Path_GpuScaleQsv" : "Path_GpuDirect");
+                                      scale ? "Path_GpuScaleQsv" : directPath);
                 }
                 yield return Make("qsv/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;

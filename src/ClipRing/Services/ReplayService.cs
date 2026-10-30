@@ -350,7 +350,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
     /// <summary>
     /// Every 2 s: has the selected monitor switched to another resolution or refresh rate (a game in
     /// exclusive fullscreen, Windows display settings, or a dual-mode monitor switching between e.g. 4K 240 Hz
-    /// and 1080p 480 Hz)? Graphics Capture keeps the size it started with, so the recording must be rebuilt.
+    /// and 1080p 480 Hz)? Graphics Capture scales the new mode to the size it started with; the recording is
+    /// only rebuilt when that size, the frame rate or the capture method has to change.
     /// A new mode has to be seen twice in a row, because a switch takes a moment to settle.
     /// </summary>
     private void CheckMonitorMode()
@@ -389,7 +390,20 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (after is null) return;
         Log.Info($"Monitormodus gewechselt: {before.Width}x{before.Height} {before.RefreshHz} Hz → " +
                  $"{after.Width}x{after.Height} {after.RefreshHz} Hz ({after.DeviceName})");
-        ApplyMonitorModeProfile(after);
+        bool settingsChanged = ApplyMonitorModeProfile(after);
+
+        // Same output size (e.g. 1440x1080 stretched to 1920x1080 and back, every alt-tab out of CS2): Graphics
+        // Capture already scales the new mode, so the recording and its replay buffer just carry on.
+        if (!settingsChanged && State == ReplayState.Running && _recorder is not null &&
+            _pipeline is { Source: VideoSource.Wgc, CaptureWidth: > 0 } pipeline &&
+            _recordingMonitor is { } recording && recording.DeviceName == after.DeviceName && recording.Index == after.Index &&
+            PipelineBuilder.OutputSize(Settings, after) == (pipeline.OutWidth, pipeline.OutHeight))
+        {
+            _recordingMonitor = after;
+            Log.Info($"Aufnahme läuft weiter, Graphics Capture skaliert auf {pipeline.OutWidth}x{pipeline.OutHeight}");
+            return;
+        }
+
         Notify?.Invoke(Loc.T("Notify_ModeChangedTitle"),
                        Loc.F("Notify_ModeChanged", after.Width, after.Height, after.RefreshHz, Settings.Fps));
         if (_recorder is not null || State is ReplayState.Running or ReplayState.Starting or ReplayState.Error)
