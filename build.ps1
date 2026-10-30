@@ -191,7 +191,6 @@ if (-not $SkipFfmpeg) {
     $commit = if ($ffVersion -match '-g([0-9a-f]{7,40})') { $Matches[1] } else { $null }
     $lines = @(
         'ClipRing includes FFmpeg, unchanged, as a separate program under the GNU GPL v3.',
-        'ClipRing enthält FFmpeg unverändert als eigenes Programm unter der GNU GPL v3.',
         '',
         "FFmpeg version: $ffVersion"
     )
