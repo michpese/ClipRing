@@ -93,6 +93,21 @@ If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\bui
 - Texts live in `src/ClipRing/Localization/de.json` and `en.json`.
 - Code overview: `Capture/` (screen capture, encoders, memory buffer, saving), `Audio/`, `Games/` (game detection), `Highlights/` (CS2), `UI/`, `Services/`.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- Committers and reviewers: [michpese](https://github.com/michpese)
+- Approvers: [michpese](https://github.com/michpese)
+
+Releases are built by GitHub Actions from this repository. Only these builds are signed, and every release is approved by hand before it is signed.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+ClipRing has no telemetry, no update check and no account. When Counter-Strike 2 highlights are turned on, it only listens on your own PC (127.0.0.1) for the data CS2 sends it.
+
 ## License
 
 ClipRing is licensed under the [GNU General Public License v3.0](LICENSE). The built-in FFmpeg is also GPL and is included unchanged (build by [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)). Every download contains its license (`FFMPEG-LICENSE.txt`), and the release notes link to the exact source code of the included version (from 0.1.1 on also as `FFMPEG-SOURCE.txt` in the download). [NAudio](https://github.com/naudio/NAudio) is MIT-licensed.
