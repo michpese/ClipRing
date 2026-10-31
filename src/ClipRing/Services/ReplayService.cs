@@ -816,8 +816,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
 
         string game = gameOverride ?? _games.ResolveForClip()?.DisplayName ?? "Desktop";
+        // Highlights don't clear the buffer: a hotkey save right after one should still have the whole time.
         var request = new ClipRequest(Math.Min(seconds, Settings.BufferSeconds), game, end ?? DateTime.Now, tag, reason,
-                                      EndAtTimestamp: end is not null);
+                                      EndAtTimestamp: end is not null, ClearBuffer: manual && Settings.ClearBufferAfterSave);
         IsSaving = true;
         try
         {

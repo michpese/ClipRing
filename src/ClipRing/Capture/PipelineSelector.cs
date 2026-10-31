@@ -11,7 +11,7 @@ namespace ClipRing.Capture;
 public static class PipelineSelector
 {
     /// <summary>Raised when the candidate list changes, so cached winners from older versions are re-tested.</summary>
-    private const int CandidateVersion = 2;
+    private const int CandidateVersion = 3;
 
     public static string CacheKey(FfmpegInfo ff, AppSettings s, MonitorInfo mon)
     {

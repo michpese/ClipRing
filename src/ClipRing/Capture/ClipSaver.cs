@@ -7,8 +7,9 @@ using ClipRing.Native;
 namespace ClipRing.Capture;
 
 /// <param name="EndAtTimestamp">Cut the clip at <paramref name="Timestamp"/> (highlights); otherwise it runs to the newest frame.</param>
+/// <param name="ClearBuffer">After saving, drop what the clip contains so the buffer starts over.</param>
 public sealed record ClipRequest(double Seconds, string Game, DateTime Timestamp, string? Tag, string Reason,
-                                 bool EndAtTimestamp = false);
+                                 bool EndAtTimestamp = false, bool ClearBuffer = false);
 
 public sealed record SavedClip(string FilePath, string Game, double DurationSeconds, long SizeBytes, string? Tag, DateTime SavedAt)
 {
@@ -75,6 +76,11 @@ public sealed class ClipSaver
             }
             var size = new FileInfo(target).Length;
             Log.Info($"Clip gespeichert ({request.Reason}): {target} ({snapshot.Duration:F1}s, {size / 1048576.0:F1} MB)");
+            if (request.ClearBuffer)
+            {
+                buffer.DiscardThrough(snapshot.End);
+                Log.Info("Puffer beginnt nach dem Speichern neu");
+            }
             return new SavedClip(target, request.Game, snapshot.Duration, size, request.Tag, DateTime.Now);
         }
         finally

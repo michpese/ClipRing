@@ -44,12 +44,15 @@ public sealed class ClipSnapshot : IDisposable
         Init = init;
         Fragments = fragments;
         Duration = fragments.Count == 0 ? 0 : fragments[^1].End - fragments[0].Start;
+        End = fragments.Count == 0 ? 0 : fragments[^1].End;
         Bytes = init.Length + fragments.Sum(f => f.Data.Length);
     }
 
     public byte[] Init { get; }
     public IReadOnlyList<BufferedFragment> Fragments { get; }
     public double Duration { get; }
+    /// <summary>Stream time where the snapshot ends.</summary>
+    public double End { get; }
     public long Bytes { get; }
 
     public async Task WriteToAsync(Stream destination, CancellationToken ct)
@@ -152,6 +155,26 @@ public sealed class ReplayBuffer
                 _fragments[i].Release();
             }
             _fragments.RemoveRange(0, nextKey);
+        }
+    }
+
+    /// <summary>
+    /// Drops everything up to <paramref name="streamTime"/> (what a clip just saved), so the buffer starts
+    /// over from there. The rest still starts at a keyframe.
+    /// </summary>
+    public void DiscardThrough(double streamTime)
+    {
+        lock (_gate)
+        {
+            int count = 0;
+            while (count < _fragments.Count && _fragments[count].End <= streamTime + 0.001) count++;
+            while (count < _fragments.Count && !_fragments[count].IsKeyframe) count++;
+            for (int i = 0; i < count; i++)
+            {
+                _bytes -= _fragments[i].Data.Length;
+                _fragments[i].Release();
+            }
+            _fragments.RemoveRange(0, count);
         }
     }
 

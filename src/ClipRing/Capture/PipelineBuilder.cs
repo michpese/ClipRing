@@ -308,14 +308,14 @@ public static class PipelineBuilder
         switch (backend)
         {
             case EncoderBackend.Nvenc:
-                if (!scale) yield return Make("nvenc/direct", null, directPath);
+                if (!scale) yield return Make("nvenc/direct", NvencRgbTags, directPath);
                 if (scale && ff.HasFilter("scale_d3d11"))
                     yield return Make("nvenc/scale_d3d11", $"scale_d3d11=width={ow}:height={oh}:format=nv12", "Path_GpuScale");
                 yield return Make("nvenc/cpu", cpuChain("nv12"), "Path_CpuConvert", bt709);
                 break;
 
             case EncoderBackend.Amf:
-                if (!scale) yield return Make("amf/direct", null, directPath);
+                if (!scale) yield return Make("amf/direct", AmfRgbTags, directPath);
                 if (scale && ff.HasFilter("vpp_amf"))
                     yield return Make("amf/vpp_amf", $"vpp_amf=w={ow}:h={oh}:format=nv12", "Path_GpuScaleAmf");
                 if (scale && ff.HasFilter("scale_d3d11"))
@@ -343,6 +343,17 @@ public static class PipelineBuilder
                 break;
         }
     }
+
+    /// <summary>
+    /// The direct paths hand the encoder RGB frames, which carry RGB, full range and sRGB as colour info.
+    /// NVENC converts them to limited-range BT.601 YUV and writes that into the video stream, but the MP4's
+    /// colour box was taken from the frames (full range, RGB matrix): players that trust the container showed
+    /// clips washed out. So the frames are tagged with what the encoder really produces.
+    /// </summary>
+    private const string NvencRgbTags = "setparams=range=tv:colorspace=bt470bg:color_primaries=bt709:color_trc=bt709";
+
+    /// <summary>AMF converts RGB input to the colour profile the frames carry: BT.709, limited range.</summary>
+    private const string AmfRgbTags = "setparams=range=tv:colorspace=bt709:color_primaries=bt709:color_trc=bt709";
 
     public static List<string> EncoderArgs(EncoderBackend backend, VideoCodec codec, string encoder, int kbps, AppSettings s)
     {

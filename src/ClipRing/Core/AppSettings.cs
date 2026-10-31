@@ -115,6 +115,10 @@ public sealed class AppSettings : ObservableObject
     public string FileNameTemplate { get => _fileNameTemplate; set => Set(ref _fileNameTemplate, string.IsNullOrWhiteSpace(value) ? "{game}_{date}_{time}" : value); }
 
 
+    private bool _clearBufferAfterSave = true;
+    /// <summary>After a saved clip the buffer starts over, so pressing the hotkey again doesn't save the same scene.</summary>
+    public bool ClearBufferAfterSave { get => _clearBufferAfterSave; set => Set(ref _clearBufferAfterSave, value); }
+
     private bool _notifyOnSave = true;
     public bool NotifyOnSave { get => _notifyOnSave; set => Set(ref _notifyOnSave, value); }
 

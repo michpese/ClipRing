@@ -278,5 +278,8 @@
   "Video_At": "at",
   "Video_Lead": "Changes on this page restart the replay buffer, which clears it.",
   "Video_Picture": "Picture",
-  "Video_RamWarning": "That's a lot for this PC. Choose a shorter length or a lower bitrate."
+  "Video_RamWarning": "That's a lot for this PC. Choose a shorter length or a lower bitrate.",
+  "Section_Buffer": "Buffer",
+  "Row_ClearBufferAfterSave": "Start over after saving",
+  "Desc_ClearBufferAfterSave": "After every saved clip the buffer starts again at 0:00, so pressing the hotkey again doesn't save the same scene twice. Automatic highlights don't clear the buffer."
 }

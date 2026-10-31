@@ -278,5 +278,8 @@
   "Video_At": "bei",
   "Video_Lead": "Änderungen auf dieser Seite starten den Replay-Puffer neu, dabei wird er geleert.",
   "Video_Picture": "Bild",
-  "Video_RamWarning": "Das ist viel für diesen PC. Kürzere Länge oder niedrigere Bitrate wählen."
+  "Video_RamWarning": "Das ist viel für diesen PC. Kürzere Länge oder niedrigere Bitrate wählen.",
+  "Section_Buffer": "Puffer",
+  "Row_ClearBufferAfterSave": "Nach dem Speichern neu beginnen",
+  "Desc_ClearBufferAfterSave": "Nach jedem gespeicherten Clip beginnt der Puffer wieder bei 0:00, damit mehrmaliges Drücken nicht dieselbe Szene noch einmal speichert. Automatische Highlights leeren den Puffer nicht."
 }

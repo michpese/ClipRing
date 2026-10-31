@@ -477,6 +477,15 @@
                             </StackPanel>
                         </Border>
 
+                        <TextBlock Text="{l:T Section_Buffer}" Style="{StaticResource Text.SectionTitle}" />
+                        <Border Style="{StaticResource Sheet}">
+                            <StackPanel>
+                                <ui:SettingRow Title="{l:T Row_ClearBufferAfterSave}" Description="{l:T Desc_ClearBufferAfterSave}" ShowDivider="False">
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ClearBufferAfterSave}" />
+                                </ui:SettingRow>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Text="{l:T Section_Feedback}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
