@@ -28,6 +28,18 @@ $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is much faster with
 
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
 
+# GitHub's API and release downloads fail now and then, e.g. while BtbN replaces its "latest" release.
+function Retry([string]$What, [scriptblock]$Action, [int]$Attempts = 4) {
+    for ($i = 1; ; $i++) {
+        try { return & $Action }
+        catch {
+            Write-Host "$What fehlgeschlagen (Versuch $i/$Attempts): $($_.Exception.Message)" -ForegroundColor Yellow
+            if ($i -ge $Attempts) { throw }
+            Start-Sleep -Seconds (20 * $i)
+        }
+    }
+}
+
 # ------------------------------------------------------------------ 1. .NET SDK
 Step '.NET SDK prüfen'
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -72,22 +84,21 @@ else {
         $headers = @{ 'User-Agent' = 'ClipRing-build' }
         # In GitHub Actions the token avoids the anonymous API rate limit of shared runners.
         if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
-        $release = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -Headers $headers
+        $release, $asset = Retry 'BtbN-Release abfragen' {
+            $rel = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -Headers $headers
 
-        # Newest stable release branch, e.g. ffmpeg-n9.0-latest-win64-gpl-9.0.zip
-        $candidates = foreach ($a in $release.assets) {
-            if ($a.name -match '^ffmpeg-n(\d+)\.(\d+)-latest-win64-gpl-\d+\.\d+\.zip$') {
-                [pscustomobject]@{ Asset = $a; Version = [version]"$($Matches[1]).$($Matches[2])" }
+            # Newest stable release branch, e.g. ffmpeg-n9.0-latest-win64-gpl-9.0.zip
+            $candidates = foreach ($a in $rel.assets) {
+                if ($a.name -match '^ffmpeg-n(\d+)\.(\d+)-latest-win64-gpl-\d+\.\d+\.zip$') {
+                    [pscustomobject]@{ Asset = $a; Version = [version]"$($Matches[1]).$($Matches[2])" }
+                }
             }
+            $pick = $candidates | Sort-Object Version -Descending | Select-Object -First 1
+            $found = if ($pick) { $pick.Asset }
+                     else { $rel.assets | Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl.zip' } | Select-Object -First 1 }
+            if (-not $found) { throw "Kein passender FFmpeg-Build im Release '$($rel.tag_name)' ($(@($rel.assets).Count) Dateien)" }
+            , @($rel, $found)
         }
-        $pick = $candidates | Sort-Object Version -Descending | Select-Object -First 1
-        if ($pick) {
-            $asset = $pick.Asset
-        }
-        else {
-            $asset = $release.assets | Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl.zip' } | Select-Object -First 1
-        }
-        if (-not $asset) { throw 'Kein passender FFmpeg-Build gefunden. Bitte manuell herunterladen (siehe README).' }
 
         # Which BtbN build-script commit produced this binary: needed to point to the exact sources (GPL).
         $btbnCommit = $null
@@ -105,7 +116,7 @@ else {
         try {
             $zip = Join-Path $temp $asset.name
             Write-Host "Lade $($asset.name) ($([math]::Round($asset.size / 1MB)) MB) …"
-            Invoke-WebRequest $asset.browser_download_url -OutFile $zip
+            Retry 'FFmpeg-Download' { Invoke-WebRequest $asset.browser_download_url -OutFile $zip }
             Expand-Archive $zip -DestinationPath $temp
             $bin = Get-ChildItem $temp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
             if (-not $bin) { throw 'ffmpeg.exe nicht im Archiv gefunden.' }
