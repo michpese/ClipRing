@@ -24,6 +24,28 @@ public static class BlockPool
         return GC.AllocateUninitializedArray<byte>(BlockSize);
     }
 
+    /// <summary>Drops the spare blocks, so their memory can go back to Windows.</summary>
+    public static void Clear()
+    {
+        while (Free.TryTake(out _)) Interlocked.Decrement(ref _freeCount);
+    }
+
+    /// <summary>
+    /// After the buffer was emptied (pause, waiting for a game, restart): the freed blocks sit on the
+    /// Large Object Heap, which the GC only cleans in a full collection, and an idle app allocates nothing
+    /// that would trigger one. Without this the memory of a full buffer stayed with the app for good.
+    /// </summary>
+    public static void ReleaseMemory()
+    {
+        long before = Environment.WorkingSet;
+        Clear();
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        long after = Environment.WorkingSet;
+        if (before - after > 16L * 1024 * 1024)
+            ClipRing.Core.Log.Info($"Speicher an Windows zurückgegeben: {before / 1048576} MB -> {after / 1048576} MB");
+    }
+
     public static void Return(byte[] block)
     {
         if (block.Length != BlockSize) return;

@@ -570,6 +570,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             StopRecorder();
             _buffer.Reset(null);
             BufferedSeconds = 0;
+            BlockPool.ReleaseMemory();
 
             if (Ffmpeg is null) return;
             if (_userPaused)
