@@ -85,11 +85,14 @@ else {
         # In GitHub Actions the token avoids the anonymous API rate limit of shared runners.
         if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
         $release, $asset = Retry 'BtbN-Release abfragen' {
-            $rel = Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -Headers $headers
+            # The release tagged "latest" has stable file names (ffmpeg-n9.0-latest-win64-gpl-9.0.zip). GitHub's
+            # own "latest release" can also be a dated auto-build with versioned names, which are accepted too.
+            $rel = try { Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest' -Headers $headers }
+                   catch { Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest' -Headers $headers }
 
-            # Newest stable release branch, e.g. ffmpeg-n9.0-latest-win64-gpl-9.0.zip
+            # Newest stable release branch, e.g. ffmpeg-n9.0-latest-win64-gpl-9.0.zip or ffmpeg-n9.0.2-41-g…-win64-gpl-9.0.zip
             $candidates = foreach ($a in $rel.assets) {
-                if ($a.name -match '^ffmpeg-n(\d+)\.(\d+)-latest-win64-gpl-\d+\.\d+\.zip$') {
+                if ($a.name -match '^ffmpeg-n(\d+)\.(\d+)[^\s/]*-win64-gpl-\d+\.\d+\.zip$') {
                     [pscustomobject]@{ Asset = $a; Version = [version]"$($Matches[1]).$($Matches[2])" }
                 }
             }
