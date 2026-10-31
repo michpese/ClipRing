@@ -36,6 +36,15 @@ jobs:
         shell: pwsh
         run: ./.github/scripts/report-diagnostics.ps1 -LogFile build.log
 
+      - name: Ende des Build-Logs bei Fehler
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build.log) {
+            $tail = (Get-Content build.log -Tail 25 | Where-Object { $_.Trim() }) -join ' | '
+            "::error title=Build-Log (Ende)::$tail"
+          }
+
       - name: Oberfläche prüfen (Deutsch und Englisch, alle Seiten)
         shell: pwsh
         timeout-minutes: 5
