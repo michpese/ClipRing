@@ -93,16 +93,7 @@ If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\bui
 - Texts live in `src/ClipRing/Localization/de.json` and `en.json`.
 - Code overview: `Capture/` (screen capture, encoders, memory buffer, saving), `Audio/`, `Games/` (game detection), `Highlights/` (CS2), `UI/`, `Services/`.
 
-## Code signing policy
-
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
-
-- Committers and reviewers: [michpese](https://github.com/michpese)
-- Approvers: [michpese](https://github.com/michpese)
-
-Releases are built by GitHub Actions from this repository. Only these builds are signed, and every release is approved by hand before it is signed.
-
-### Privacy policy
+## Privacy policy
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 

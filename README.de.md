@@ -93,16 +93,7 @@ Falls PowerShell das Skript blockiert: `powershell -ExecutionPolicy Bypass -File
 - Die Texte liegen in `src/ClipRing/Localization/de.json` und `en.json`.
 - Code-Überblick: `Capture/` (Bildschirmaufnahme, Encoder, Speicherpuffer, Speichern), `Audio/`, `Games/` (Spielerkennung), `Highlights/` (CS2), `UI/`, `Services/`.
 
-## Code-Signierung
-
-Kostenlose Code-Signierung durch [SignPath.io](https://about.signpath.io/), Zertifikat von der [SignPath Foundation](https://signpath.org/).
-
-- Committer und Reviewer: [michpese](https://github.com/michpese)
-- Freigabe: [michpese](https://github.com/michpese)
-
-Releases werden von GitHub Actions aus diesem Repository gebaut. Nur diese Builds werden signiert, und jedes Release wird vor dem Signieren von Hand freigegeben.
-
-### Datenschutz
+## Datenschutz
 
 Dieses Programm überträgt keine Informationen an andere Systeme im Netzwerk, außer der Nutzer oder die Person, die es installiert oder betreibt, verlangt das ausdrücklich.
 
