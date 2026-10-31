@@ -84,7 +84,7 @@ else {
         $headers = @{ 'User-Agent' = 'ClipRing-build' }
         # In GitHub Actions the token avoids the anonymous API rate limit of shared runners.
         if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
-        $release, $asset = Retry 'BtbN-Release abfragen' {
+        $lookup = Retry 'BtbN-Release abfragen' {
             # The release tagged "latest" has stable file names (ffmpeg-n9.0-latest-win64-gpl-9.0.zip). GitHub's
             # own "latest release" can also be a dated auto-build with versioned names, which are accepted too.
             $rel = try { Invoke-RestMethod 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest' -Headers $headers }
@@ -100,8 +100,10 @@ else {
             $found = if ($pick) { $pick.Asset }
                      else { $rel.assets | Where-Object { $_.name -eq 'ffmpeg-master-latest-win64-gpl.zip' } | Select-Object -First 1 }
             if (-not $found) { throw "Kein passender FFmpeg-Build im Release '$($rel.tag_name)' ($(@($rel.assets).Count) Dateien)" }
-            , @($rel, $found)
+            [pscustomobject]@{ Release = $rel; Asset = $found }
         }
+        $release = $lookup.Release
+        $asset = $lookup.Asset
 
         # Which BtbN build-script commit produced this binary: needed to point to the exact sources (GPL).
         $btbnCommit = $null
