@@ -93,6 +93,10 @@ If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\bui
 - Texts live in `src/ClipRing/Localization/de.json` and `en.json`.
 - Code overview: `Capture/` (screen capture, encoders, memory buffer, saving), `Audio/`, `Games/` (game detection), `Highlights/` (CS2), `UI/`, `Services/`.
 
+## Use of AI
+
+ClipRing was developed with the help of AI. Large parts of the code and documentation were written together with [Claude](https://claude.ai) (Anthropic); commits made this way are marked with `Co-Authored-By: Claude`. Design decisions, testing and reviewing the changes were done by me, and I'm responsible for what ends up in the project.
+
 ## Privacy policy
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
