@@ -24,6 +24,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Show why the build stopped in the log too (CI keeps only the output streams).
+trap { Write-Host "FEHLER: $($_.Exception.Message)" -ForegroundColor Red; break }
 $ProgressPreference = 'SilentlyContinue' # Invoke-WebRequest is much faster without the progress bar
 
 function Step($text) { Write-Host "`n==> $text" -ForegroundColor Cyan }
@@ -126,8 +128,11 @@ else {
             # BtbN publishes SHA-256 sums for every file of a release: a broken or tampered download stops here.
             $sums = $release.assets | Where-Object { $_.name -eq 'checksums.sha256' } | Select-Object -First 1
             if ($sums) {
-                $sumText = Retry 'Prüfsummen laden' { (Invoke-WebRequest $sums.browser_download_url -UseBasicParsing).Content }
-                if ($sumText -is [byte[]]) { $sumText = [Text.Encoding]::UTF8.GetString($sumText) }
+                # Converted to text inside the block: a byte[] returned from it would be unrolled into single bytes.
+                $sumText = Retry 'Prüfsummen laden' {
+                    $content = (Invoke-WebRequest $sums.browser_download_url -UseBasicParsing).Content
+                    if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }
+                }
                 $line = ($sumText -split "`r?`n") | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($asset.name))\s*$" } |
                     Select-Object -First 1
                 if (-not $line) { throw "Keine Prüfsumme für $($asset.name) in checksums.sha256" }
