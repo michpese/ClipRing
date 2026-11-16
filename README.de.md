@@ -8,7 +8,7 @@
 
 Es funktioniert wie **NVIDIA ShadowPlay (Instant Replay)** oder **AMD ReLive**, ist aber nicht an eine Grafikkartenmarke gebunden und quelloffen. ClipRing ist für **kompetitive Spiele** gemacht: In Counter-Strike 2 speichert es deine Multi-Kills automatisch.
 
-> **Frühe Version (0.1).** ClipRing funktioniert, wurde bisher aber vor allem auf einem PC mit NVIDIA-Grafikkarte und Counter-Strike 2 getestet. Klappt etwas auf deinem System nicht, eröffne bitte ein [Issue](https://github.com/michpese/ClipRing/issues) und häng das Protokoll an (siehe [Tipps](#tipps)).
+> **Frühe Version (0.2).** ClipRing funktioniert, wurde bisher aber vor allem auf einem PC mit NVIDIA-Grafikkarte und Counter-Strike 2 getestet. Klappt etwas auf deinem System nicht, eröffne bitte ein [Issue](https://github.com/michpese/ClipRing/issues) und häng das Protokoll an (siehe [Tipps](#tipps)).
 
 ## Was es kann
 
@@ -19,7 +19,7 @@ Es funktioniert wie **NVIDIA ShadowPlay (Instant Replay)** oder **AMD ReLive**, 
 - **Dual-Modus-Monitore:** Wechselt dein Monitor zum Beispiel zwischen 4K 240 Hz und 1080p 480 Hz, zieht ClipRing mit und merkt sich Bildrate und Auflösung für jeden Modus.
 - **Automatische CS2-Highlights:** 2K, 3K, 4K und Aces werden von selbst gespeichert. Standardmäßig nur in Wettkampf und Premier, damit Deathmatch nicht deinen Ordner füllt.
 - **Ordentliche Clips:** Jedes Spiel bekommt einen eigenen Ordner, die Dateien heißen nach Spiel, Datum und Uhrzeit.
-- **Spielton und Mikrofon,** jeweils mit eigener Lautstärke.
+- **Spielton und Mikrofon,** jeweils mit eigener Lautstärke, auf Wunsch zusätzlich auf getrennten Spuren zum Schneiden.
 - **Stört nicht:** sitzt im Infobereich, startet auf Wunsch mit Windows, und die Hotkeys funktionieren auch in Vollbild-Spielen.
 - **Deutsch und Englisch.**
 - **Eine Datei:** keine Installation, nichts weiter herunterzuladen.
@@ -74,7 +74,7 @@ Garantien können nur Valve und FACEIT geben, aber ClipRing tut nichts, wonach A
 
 ClipRing nimmt deinen Bildschirm ständig mit der Grafikkarte auf und hält die letzten Minuten im Arbeitsspeicher, statt dauernd auf die SSD zu schreiben. Drückst du den Hotkey, speichert es genau diesen Teil als MP4, ohne neu zu kodieren: Das geht schnell, und die Qualität bleibt gleich. Aufnahme und Kodierung übernimmt [FFmpeg](https://ffmpeg.org), das in ClipRing eingebaut ist.
 
-Bekannte Grenzen: Spielton und Mikrofon landen auf einer gemeinsamen Tonspur, HDR wird als SDR aufgenommen, und kopiergeschützte Videos erscheinen schwarz.
+Bekannte Grenzen: HDR wird als SDR aufgenommen, und kopiergeschützte Videos erscheinen schwarz.
 
 ## Für Entwickler
 
@@ -88,7 +88,7 @@ Nötig sind Windows und das [.NET 10 SDK](https://dotnet.microsoft.com/download)
 
 Falls PowerShell das Skript blockiert: `powershell -ExecutionPolicy Bypass -File .\build.ps1`.
 
-- Jeder Push wird auf GitHub (Windows) gebaut. Der Build startet die App auch, öffnet jede Seite in beiden Sprachen und prüft das eingebaute FFmpeg.
+- Jeder Push wird auf GitHub (Windows) gebaut. Der Build führt die Unit-Tests aus (`dotnet test tests/ClipRing.Tests`), startet die App, öffnet jede Seite in beiden Sprachen und prüft das eingebaute FFmpeg.
 - Ein Tag wie `v0.2.0` erzeugt automatisch ein Release.
 - Die Texte liegen in `src/ClipRing/Localization/de.json` und `en.json`.
 - Code-Überblick: `Capture/` (Bildschirmaufnahme, Encoder, Speicherpuffer, Speichern), `Audio/`, `Games/` (Spielerkennung), `Highlights/` (CS2), `UI/`, `Services/`.

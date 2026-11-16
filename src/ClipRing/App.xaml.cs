@@ -15,6 +15,7 @@ public partial class App : Application
 
     private Mutex? _mutex;
     private EventWaitHandle? _showEvent;
+    private RegisteredWaitHandle? _showWait;
     private AppSettings? _settings;
     private ReplayService? _service;
     private MainViewModel? _viewModel;
@@ -81,7 +82,7 @@ public partial class App : Application
             lines.Add("missing=" + (Loc.Missing.IsEmpty ? "none" : string.Join(" ", Loc.Missing.Keys.OrderBy(k => k))));
             lines.Add($"bindingErrors={listener.Messages.Count}");
             lines.AddRange(listener.Messages.Distinct().Take(8).Select(m => "binding: " + m));
-            if (Loc.Missing.IsEmpty && onlyDe.Count == 0 && onlyEn.Count == 0) code = 0;
+            if (Loc.Missing.IsEmpty && onlyDe.Count == 0 && onlyEn.Count == 0 && listener.Messages.Count == 0) code = 0;
         }
         catch (Exception ex)
         {
@@ -152,7 +153,7 @@ public partial class App : Application
             IsExiting = true;
             string report = selfTest + 1 < e.Args.Length
                 ? e.Args[selfTest + 1]
-                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cliprings-selftest.txt");
+                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "clipring-selftest.txt");
             Shutdown(Task.Run(() => RunFfmpegSelfTestAsync(report)).GetAwaiter().GetResult());
             return;
         }
@@ -165,7 +166,7 @@ public partial class App : Application
             IsExiting = true;
             string report = uiTest + 1 < e.Args.Length
                 ? e.Args[uiTest + 1]
-                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cliprings-selftest-ui.txt");
+                : System.IO.Path.Combine(System.IO.Path.GetTempPath(), "clipring-selftest-ui.txt");
             Dispatcher.BeginInvoke(new Action(async () => Shutdown(await RunUiSelfTestAsync(report))));
             return;
         }
@@ -185,7 +186,7 @@ public partial class App : Application
             return;
         }
         _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
-        ThreadPool.RegisterWaitForSingleObject(_showEvent,
+        _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent,
             (_, _) => Dispatcher.BeginInvoke(new Action(ShowMainWindow)), null, Timeout.Infinite, false);
 
         base.OnStartup(e);
@@ -346,6 +347,7 @@ public partial class App : Application
             try { _tray?.Dispose(); } catch { }
             try { _service?.Dispose(); } catch { }
         }
+        _showWait?.Unregister(null);
         _showEvent?.Dispose();
         try { _mutex?.ReleaseMutex(); } catch { }
         _mutex?.Dispose();

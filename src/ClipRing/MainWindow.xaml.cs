@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Markup;
 using ClipRing.Localization;
 using ClipRing.UI;
@@ -16,6 +17,14 @@ public partial class MainWindow : Window
         EnableOptionLocking();
         ApplyLanguage();
         Loc.LanguageChanged += ApplyLanguage;
+        IsVisibleChanged += (_, _) => UpdateWindowShown();
+        StateChanged += (_, _) => UpdateWindowShown();
+        DataContextChanged += (_, _) => UpdateWindowShown();
+    }
+
+    private void UpdateWindowShown()
+    {
+        if (DataContext is MainViewModel vm) vm.WindowShown = IsVisible && WindowState != WindowState.Minimized;
     }
 
     /// <summary>
@@ -34,8 +43,19 @@ public partial class MainWindow : Window
     private void ApplyLanguage()
         => Language = XmlLanguage.GetLanguage(Loc.Instance.Culture.IetfLanguageTag);
 
+    /// <summary>
+    /// Text boxes write to the settings when they lose focus. Hiding the window doesn't take the focus away,
+    /// so a value typed right before closing would be lost.
+    /// </summary>
+    private void CommitPendingEdits()
+    {
+        if (Keyboard.FocusedElement is TextBox box) box.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        Keyboard.ClearFocus();
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
+        CommitPendingEdits();
         if (App.IsExiting)
         {
             base.OnClosing(e);

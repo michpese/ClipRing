@@ -23,6 +23,7 @@ public sealed class Cs2GameStateServer : IDisposable
     private readonly CancellationTokenSource _cts = new();
     private TcpListener? _listener;
 
+    private readonly object _stateGate = new();
     private int? _roundKills;
     private int? _roundHeadshots;
 
@@ -36,8 +37,11 @@ public sealed class Cs2GameStateServer : IDisposable
     /// <summary>kills, headshots, game mode (GSI map.mode, e.g. "competitive", "deathmatch")</summary>
     public event Action<int, int, string?>? KillsDetected;
 
-    /// <summary>No more kills possible this round: the player died, the round is over or the match ended.</summary>
+    /// <summary>No more regular kills this round: the player died or the round is over.</summary>
     public event Action? RoundEnded;
+
+    /// <summary>The next round started or the match ended: kills from now on belong to a new round.</summary>
+    public event Action? RoundFinished;
 
     public DateTime LastMessageUtc { get; private set; } = DateTime.MinValue;
     public string? LastMap { get; private set; }
@@ -126,7 +130,7 @@ public sealed class Cs2GameStateServer : IDisposable
                     await stream.WriteAsync(response, ct).ConfigureAwait(false);
 
                     try { Process(body); }
-                    catch (Exception ex) { Log.Warn("CS2-GSI-Daten nicht lesbar: " + ex.Message); }
+                    catch (Exception ex) { Log.Warn("CS2-GSI-Daten nicht verarbeitet: " + ex.Message); }
 
                     if (close) return;
                 }
@@ -147,11 +151,15 @@ public sealed class Cs2GameStateServer : IDisposable
         return -1;
     }
 
-    private void Process(byte[] body)
+    /// <summary>Handles one GSI update. Connections run in parallel, so updates are handled one at a time.</summary>
+    internal void Process(byte[] body)
     {
         using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
+        lock (_stateGate) Process(doc.RootElement);
+    }
 
+    private void Process(JsonElement root)
+    {
         if (!root.TryGetProperty("auth", out var auth) || !auth.TryGetProperty("token", out var token) ||
             token.GetString() != _token)
             return; // not ours
@@ -168,19 +176,21 @@ public sealed class Cs2GameStateServer : IDisposable
         string? roundPhase = root.TryGetProperty("round", out var round) && round.TryGetProperty("phase", out var rp) ? rp.GetString() : null;
 
         // Checked after the kills: the kill that ends a round (or a trade) comes in the same update.
-        bool died = ProcessPlayer(root, provider, phase);
-        if (died || phase == "gameover" || roundPhase is "over" or "freezetime") RoundEnded?.Invoke();
+        var state = ProcessPlayer(root, provider, phase);
+        if (state == PlayerRound.NewRound || phase == "gameover" || roundPhase == "freezetime") RoundFinished?.Invoke();
+        else if (state == PlayerRound.Dead || roundPhase == "over") RoundEnded?.Invoke();
     }
 
-    /// <returns>True if the player can't get more kills this round (dead, spectating, new round).</returns>
-    private bool ProcessPlayer(JsonElement root, string? provider, string? phase)
+    private enum PlayerRound { Playing, Dead, NewRound }
+
+    private PlayerRound ProcessPlayer(JsonElement root, string? provider, string? phase)
     {
-        if (provider is null || !root.TryGetProperty("player", out var player)) return false;
+        if (provider is null || !root.TryGetProperty("player", out var player)) return PlayerRound.Playing;
         string? playerId = player.TryGetProperty("steamid", out var pid) ? pid.GetString() : null;
 
         // While dead and spectating, "player" is somebody else: keep our baseline untouched.
-        if (playerId != provider) return true;
-        if (!player.TryGetProperty("state", out var state)) return false;
+        if (playerId != provider) return PlayerRound.Dead;
+        if (!player.TryGetProperty("state", out var state)) return PlayerRound.Playing;
 
         int roundKills = state.TryGetProperty("round_kills", out var rk) && rk.TryGetInt32(out var rkv) ? rkv : 0;
         int roundHs = state.TryGetProperty("round_killhs", out var rh) && rh.TryGetInt32(out var rhv) ? rhv : 0;
@@ -198,8 +208,9 @@ public sealed class Cs2GameStateServer : IDisposable
             KillsDetected?.Invoke(kills, Math.Min(headshots, kills), LastMode);
         }
 
+        if (previousKills is not null && roundKills < previousKills) return PlayerRound.NewRound;
         int health = state.TryGetProperty("health", out var hp) && hp.TryGetInt32(out var hpv) ? hpv : 100;
-        return health <= 0 || (previousKills is not null && roundKills < previousKills);
+        return health <= 0 ? PlayerRound.Dead : PlayerRound.Playing;
     }
 
     public void Dispose()
@@ -211,7 +222,10 @@ public sealed class Cs2GameStateServer : IDisposable
 
 public static class Cs2GsiInstaller
 {
-    public const string FileName = "gamestate_integration_cliprings.cfg";
+    public const string FileName = "gamestate_integration_clipring.cfg";
+
+    /// <summary>The file's name up to 0.1.3; replaced when setting up again.</summary>
+    public const string LegacyFileName = "gamestate_integration_cliprings.cfg";
 
     public static string? FindCfgDirectory(GameLibrary library)
     {
@@ -227,10 +241,14 @@ public static class Cs2GsiInstaller
     {
         var dir = FindCfgDirectory(library);
         if (dir is null) return false;
-        var path = Path.Combine(dir, FileName);
-        if (!File.Exists(path)) return false;
-        var text = File.ReadAllText(path);
-        return text.Contains($":{port}/", StringComparison.Ordinal) && text.Contains(token, StringComparison.Ordinal);
+        foreach (var name in new[] { FileName, LegacyFileName })
+        {
+            var path = Path.Combine(dir, name);
+            if (!File.Exists(path)) continue;
+            var text = File.ReadAllText(path);
+            if (text.Contains($":{port}/", StringComparison.Ordinal) && text.Contains(token, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     /// <summary>Writes the GSI config into the CS2 cfg folder. Returns the file path.</summary>
@@ -266,6 +284,10 @@ public static class Cs2GsiInstaller
         var path = Path.Combine(dir, FileName);
         // CS2 ignores cfg files with a UTF-8 BOM.
         File.WriteAllText(path, cfg.Replace("\r\n", "\n"), new UTF8Encoding(false));
+        // Two files with the same address would make CS2 send every update twice.
+        var legacy = Path.Combine(dir, LegacyFileName);
+        try { if (File.Exists(legacy)) File.Delete(legacy); }
+        catch (Exception ex) { Log.Warn("Alte CS2-Konfiguration nicht entfernt: " + ex.Message); }
         Log.Info("CS2-GSI-Konfiguration geschrieben: " + path);
         return path;
     }

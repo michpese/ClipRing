@@ -14,17 +14,28 @@ internal sealed class CaptureSource : IDisposable
     private static readonly Guid SubtypeIeeeFloat = new("00000003-0000-0010-8000-00aa00389b71");
     private static readonly Guid SubtypePcm = new("00000001-0000-0010-8000-00aa00389b71");
 
+    private readonly MMDevice _device;
     private readonly WasapiCapture _capture;
     private readonly BufferedWaveProvider _buffer;
     private readonly ISampleProvider _provider;
     private readonly byte[] _discard = new byte[16384];
     private volatile bool _stopped;
 
+    /// <summary>Takes ownership of <paramref name="device"/>, also if opening it fails.</summary>
     public CaptureSource(MMDevice device, bool loopback)
     {
-        DeviceId = device.ID;
-        Name = device.FriendlyName;
-        _capture = loopback ? new WasapiLoopbackCapture(device) : new WasapiCapture(device, true, 20);
+        _device = device;
+        try
+        {
+            DeviceId = device.ID;
+            Name = device.FriendlyName;
+            _capture = loopback ? new WasapiLoopbackCapture(device) : new WasapiCapture(device, true, 20);
+        }
+        catch
+        {
+            device.Dispose();
+            throw;
+        }
 
         var format = Normalize(_capture.WaveFormat);
         _buffer = new BufferedWaveProvider(format)
@@ -38,7 +49,7 @@ internal sealed class CaptureSource : IDisposable
         if (provider.WaveFormat.Channels == 1)
             provider = new MonoToStereoSampleProvider(provider);
         else if (provider.WaveFormat.Channels > 2)
-            provider = new DownmixToStereoSampleProvider(provider);
+            provider = new DownmixToStereoSampleProvider(provider, ChannelMask(_capture.WaveFormat));
         if (provider.WaveFormat.SampleRate != AudioEngine.SampleRate)
             provider = new WdlResamplingSampleProvider(provider, AudioEngine.SampleRate);
         _provider = provider;
@@ -52,8 +63,26 @@ internal sealed class CaptureSource : IDisposable
             _stopped = true;
             if (e.Exception is not null) Log.Warn($"Audioaufnahme '{Name}' beendet: {e.Exception.Message}");
         };
-        _capture.StartRecording();
+        try
+        {
+            _capture.StartRecording();
+        }
+        catch
+        {
+            Dispose(); // device in exclusive use, gone meanwhile, …
+            throw;
+        }
         Log.Info($"Audioquelle gestartet: {Name} ({(loopback ? "Wiedergabe" : "Mikrofon")}, {format})");
+    }
+
+    /// <summary>Speaker positions of the channels (WAVE_FORMAT_EXTENSIBLE), 0 if the format has none.</summary>
+    private static int ChannelMask(WaveFormat format)
+    {
+        if (format is not WaveFormatExtensible) return 0;
+        // NAudio keeps dwChannelMask private.
+        var field = typeof(WaveFormatExtensible).GetField("dwChannelMask",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        return field?.GetValue(format) is int mask ? mask : 0;
     }
 
     public string DeviceId { get; }
@@ -127,24 +156,98 @@ internal sealed class CaptureSource : IDisposable
     {
         try { _capture.StopRecording(); } catch { }
         try { _capture.Dispose(); } catch { }
+        try { _device.Dispose(); } catch { }
     }
 }
 
-/// <summary>Downmixes 3+ channels (5.1/7.1 order FL FR FC LFE BL BR SL SR) to stereo.</summary>
+/// <summary>
+/// Downmixes 3+ channels to stereo by speaker position. The positions come from the device format's channel
+/// mask (channels are ordered by mask bit); without one, the Windows default layout for that channel count
+/// is assumed (quad = FL FR BL BR, 5.0 = FL FR FC BL BR, 5.1 = FL FR FC LFE BL BR, 7.1 adds SL SR).
+/// </summary>
 internal sealed class DownmixToStereoSampleProvider : ISampleProvider
 {
+    // KSAUDIO speaker bits
+    private const int FL = 0x1, FR = 0x2, FC = 0x4, LFE = 0x8, BL = 0x10, BR = 0x20, FLC = 0x40, FRC = 0x80,
+                      BC = 0x100, SL = 0x200, SR = 0x400, TC = 0x800, TFL = 0x1000, TFC = 0x2000, TFR = 0x4000,
+                      TBL = 0x8000, TBC = 0x10000, TBR = 0x20000;
+
     private readonly ISampleProvider _source;
     private readonly int _channels;
+    private readonly float[] _left;
+    private readonly float[] _right;
     private float[] _scratch = Array.Empty<float>();
 
-    public DownmixToStereoSampleProvider(ISampleProvider source)
+    public DownmixToStereoSampleProvider(ISampleProvider source, int channelMask = 0)
     {
         _source = source;
         _channels = source.WaveFormat.Channels;
         WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(source.WaveFormat.SampleRate, 2);
+        (_left, _right) = Weights(_channels, channelMask);
     }
 
     public WaveFormat WaveFormat { get; }
+
+    /// <summary>Per-channel gains for the left and right output, normalized so a full mix rarely clips.</summary>
+    internal static (float[] Left, float[] Right) Weights(int channels, int channelMask)
+    {
+        var positions = Positions(channels, channelMask);
+        var left = new float[channels];
+        var right = new float[channels];
+        const float c = 0.7071f;
+        for (int ch = 0; ch < channels; ch++)
+        {
+            (left[ch], right[ch]) = positions[ch] switch
+            {
+                FL => (1f, 0f),
+                FR => (0f, 1f),
+                FC or TC or TFC => (c, c),
+                LFE => (0f, 0f), // games put nothing essential there; mixed in it only muddies the sound
+                BL or SL or TBL or TFL => (c, 0f),
+                BR or SR or TBR or TFR => (0f, c),
+                FLC => (0.9f, 0.3f),
+                FRC => (0.3f, 0.9f),
+                BC or TBC => (0.5f, 0.5f),
+                _ => (0.5f, 0.5f), // unknown position: keep it audible in the middle
+            };
+        }
+        // Same loudness as the old fixed factor for 5.1 (sum 2.41 -> 0.55), louder for fewer channels.
+        float sum = Math.Max(left.Sum(), right.Sum());
+        float norm = Math.Clamp(1f / (sum * 0.75f), 0.3f, 1f);
+        for (int ch = 0; ch < channels; ch++)
+        {
+            left[ch] *= norm;
+            right[ch] *= norm;
+        }
+        return (left, right);
+    }
+
+    /// <summary>Speaker bit of every channel, in channel order.</summary>
+    internal static int[] Positions(int channels, int channelMask)
+    {
+        int mask = channelMask;
+        if (System.Numerics.BitOperations.PopCount((uint)mask) != channels)
+        {
+            mask = channels switch
+            {
+                3 => FL | FR | FC,
+                4 => FL | FR | BL | BR,
+                5 => FL | FR | FC | BL | BR,
+                6 => FL | FR | FC | LFE | BL | BR,
+                7 => FL | FR | FC | LFE | BC | SL | SR,
+                8 => FL | FR | FC | LFE | BL | BR | SL | SR,
+                _ => 0,
+            };
+        }
+        var positions = new int[channels];
+        int ch = 0;
+        for (int bit = 0; bit < 31 && ch < channels; bit++)
+        {
+            if ((mask & (1 << bit)) != 0) positions[ch++] = 1 << bit;
+        }
+        // More channels than known positions: the rest stay 0 ("unknown").
+        return positions;
+    }
 
     public int Read(float[] buffer, int offset, int count)
     {
@@ -154,18 +257,18 @@ internal sealed class DownmixToStereoSampleProvider : ISampleProvider
         int read = _source.Read(_scratch, 0, needed);
         int framesRead = read / _channels;
 
-        const float c = 0.7071f;
-        const float norm = 0.55f; // keeps the sum of up to 4 contributions out of clipping
         for (int f = 0; f < framesRead; f++)
         {
             int i = f * _channels;
-            float l = _scratch[i];
-            float r = _scratch[i + 1];
-            if (_channels > 2) { float center = _scratch[i + 2] * c; l += center; r += center; }
-            if (_channels > 5) { l += _scratch[i + 4] * c; r += _scratch[i + 5] * c; }
-            if (_channels > 7) { l += _scratch[i + 6] * c; r += _scratch[i + 7] * c; }
-            buffer[offset + f * 2] = l * norm;
-            buffer[offset + f * 2 + 1] = r * norm;
+            float l = 0, r = 0;
+            for (int ch = 0; ch < _channels; ch++)
+            {
+                float v = _scratch[i + ch];
+                l += v * _left[ch];
+                r += v * _right[ch];
+            }
+            buffer[offset + f * 2] = l;
+            buffer[offset + f * 2 + 1] = r;
         }
         return framesRead * 2;
     }

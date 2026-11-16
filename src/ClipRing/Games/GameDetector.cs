@@ -16,9 +16,10 @@ public sealed record GameInfo(string ProcessName, string ExePath, string Display
 }
 
 /// <summary>
-/// Polls the foreground window and decides whether it is a game. Order of evidence:
+/// Watches the foreground window and decides whether it is a game. Order of evidence:
 /// user exclusions → user names/additions → built-in exe list → launcher library folder →
-/// borderless/exclusive fullscreen window.
+/// borderless/exclusive fullscreen window. Foreground changes arrive as window events (no DLL in other
+/// processes); a slow timer catches games that end without a foreground change.
 /// </summary>
 public sealed partial class GameDetector : IDisposable
 {
@@ -53,6 +54,9 @@ public sealed partial class GameDetector : IDisposable
     private readonly Dictionary<string, string> _nameCache = new(StringComparer.OrdinalIgnoreCase);
     private Timer? _timer;
     private int _ticking;
+    private int _tickAgain;
+    private IntPtr _hook;
+    private Win32.WinEventDelegate? _hookCallback; // kept alive while the hook exists
 
     [GeneratedRegex(@"(-Win64-Shipping|-WinGDK-Shipping|-Shipping|_x64|_x86|x64|Win64|_dx11|_dx12|DX11|DX12|_vulkan)$",
                     RegexOptions.IgnoreCase)]
@@ -76,15 +80,27 @@ public sealed partial class GameDetector : IDisposable
 
     public event Action<GameInfo?>? CurrentChanged;
 
+    /// <summary>Starts watching. Call on a thread with a message loop (the UI thread) for instant updates.</summary>
     public void Start()
     {
-        _timer ??= new Timer(_ => Tick(), null, TimeSpan.Zero, TimeSpan.FromSeconds(1.5));
+        bool events = System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread) is not null && InstallHook();
+        _timer ??= new Timer(_ => Tick(), null, TimeSpan.Zero, TimeSpan.FromSeconds(events ? 3 : 1.5));
+    }
+
+    private bool InstallHook()
+    {
+        if (_hook != IntPtr.Zero) return true;
+        _hookCallback = (_, _, _, _, _, _, _) => ThreadPool.QueueUserWorkItem(_ => Tick());
+        _hook = Win32.SetWinEventHook(Win32.EVENT_SYSTEM_FOREGROUND, Win32.EVENT_SYSTEM_FOREGROUND, IntPtr.Zero,
+                                      _hookCallback, 0, 0, Win32.WINEVENT_OUTOFCONTEXT | Win32.WINEVENT_SKIPOWNPROCESS);
+        if (_hook == IntPtr.Zero) Log.Warn("Fensterwechsel-Ereignisse nicht verfügbar, Spielerkennung fragt regelmäßig ab");
+        return _hook != IntPtr.Zero;
     }
 
     /// <summary>Game to use for naming a clip: the foreground game, or the last one if it is still running.</summary>
     public GameInfo? ResolveForClip()
     {
-        if (Current is not null) return Current;
+        if (Current is { } current && IsRunning(current)) return current;
         var last = LastSeen;
         if (last is not null && IsRunning(last) && DateTime.UtcNow - LastSeenUtc < TimeSpan.FromMinutes(10))
             return last;
@@ -93,10 +109,12 @@ public sealed partial class GameDetector : IDisposable
 
     public static bool IsRunning(GameInfo game)
     {
+        if (Win32.IsProcessRunning((uint)game.ProcessId, game.ExePath) is bool running) return running;
+        // Not even limited access: the process list needs no rights at all.
         try
         {
             using var p = Process.GetProcessById(game.ProcessId);
-            return !p.HasExited;
+            return string.Equals(p.ProcessName, game.ProcessName, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {
@@ -116,14 +134,44 @@ public sealed partial class GameDetector : IDisposable
     }
 
     /// <summary>True while the last detected game process is alive (even if alt-tabbed).</summary>
-    public bool IsGameRunning => Current is not null || (LastSeen is not null && IsRunning(LastSeen));
+    public bool IsGameRunning => (Current is { } current && IsRunning(current)) || (LastSeen is { } last && IsRunning(last));
 
     private void Tick()
     {
-        if (Interlocked.Exchange(ref _ticking, 1) == 1) return;
+        if (Interlocked.Exchange(ref _ticking, 1) == 1)
+        {
+            Volatile.Write(ref _tickAgain, 1); // a foreground change during a running check: look again after it
+            return;
+        }
+        try
+        {
+            do
+            {
+                Volatile.Write(ref _tickAgain, 0);
+                Check();
+            } while (Volatile.Read(ref _tickAgain) == 1);
+        }
+        finally
+        {
+            Volatile.Write(ref _ticking, 0);
+        }
+    }
+
+    private void Check()
+    {
         try
         {
             _library.RescanIfOld();
+
+            // The game ended while ClipRing, the lock screen or an elevated window is in front: the checks
+            // below would keep the previous state, so drop a game that is gone here.
+            if (Current is { } gone && !IsRunning(gone))
+            {
+                Current = null;
+                Log.Info($"Spiel beendet: {gone.DisplayName}");
+                CurrentChanged?.Invoke(null);
+            }
+
             var hwnd = Win32.GetForegroundWindow();
             if (hwnd == IntPtr.Zero) return;
             Win32.GetWindowThreadProcessId(hwnd, out uint pid);
@@ -156,10 +204,6 @@ public sealed partial class GameDetector : IDisposable
         catch (Exception ex)
         {
             Log.Warn("Spielerkennung: " + ex.Message);
-        }
-        finally
-        {
-            Volatile.Write(ref _ticking, 0);
         }
     }
 
@@ -224,5 +268,13 @@ public sealed partial class GameDetector : IDisposable
         return name;
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        if (_hook != IntPtr.Zero)
+        {
+            Win32.UnhookWinEvent(_hook);
+            _hook = IntPtr.Zero;
+        }
+    }
 }

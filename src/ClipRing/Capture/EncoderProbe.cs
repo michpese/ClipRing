@@ -38,12 +38,15 @@ public sealed class EncoderCapabilities
 
     public IReadOnlyDictionary<EncoderBackend, HashSet<VideoCodec>> Supported => _supported;
 
-    /// <summary>Can this backend encode this codec here? Software: H.264 and HEVC (AV1 is too slow in real time).</summary>
+    /// <summary>
+    /// Can this backend encode this codec here? Software only does H.264: HEVC and AV1 on the CPU are far too
+    /// slow for a live recording at game frame rates. The same rule as <see cref="CodecUsable"/>.
+    /// </summary>
     public bool Usable(EncoderBackend backend, VideoCodec codec)
     {
         if (backend == EncoderBackend.Auto) return CodecUsable(codec);
         bool inBuild = _ffmpeg is null || _ffmpeg.HasEncoder(PipelineBuilder.EncoderName(backend, codec));
-        if (backend == EncoderBackend.Software) return inBuild && codec != VideoCodec.Av1;
+        if (backend == EncoderBackend.Software) return inBuild && codec == VideoCodec.H264;
         if (!Probed) return inBuild;
         return _supported.TryGetValue(backend, out var codecs) && codecs.Contains(codec);
     }

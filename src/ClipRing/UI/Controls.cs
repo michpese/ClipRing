@@ -114,6 +114,10 @@ public class HotkeyBox : TextBox
 /// </summary>
 public class BufferTape : FrameworkElement
 {
+    /// <summary>Created once: the tape redraws four times a second.</summary>
+    private static readonly Typeface LabelTypeface =
+        new(new FontFamily("Bahnschrift, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+
     public static readonly DependencyProperty FillProperty = DependencyProperty.Register(
         nameof(Fill), typeof(double), typeof(BufferTape), new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender));
 
@@ -190,11 +194,11 @@ public class BufferTape : FrameworkElement
 
         // Time labels under the major ticks: -2:00 … jetzt
         double dpi = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        var typeface = new Typeface(new FontFamily("Bahnschrift, Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        var typeface = LabelTypeface;
         for (double t = 0; t <= total + 0.001; t += major)
         {
             string text = t == 0 ? Loc.T("Tape_Now") : "-" + TimeSpan.FromSeconds(t).ToString(t >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
-            var ft = new FormattedText(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, 11, labelBrush, dpi);
+            var ft = new FormattedText(text, Loc.Instance.Culture, FlowDirection.LeftToRight, typeface, 11, labelBrush, dpi);
             double x = w - t / total * w;
             x = t == 0 ? x - ft.Width : Math.Max(0, x - ft.Width / 2);
             if (x + ft.Width > w) x = w - ft.Width;

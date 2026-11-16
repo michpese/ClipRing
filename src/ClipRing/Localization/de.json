@@ -119,6 +119,7 @@
   "Hotkey_NeedModifier": "Bitte mit Strg, Alt oder Umschalt kombinieren",
   "Hotkey_None": "Nicht belegt",
   "Hotkey_Press": "Tastenkombination drücken …",
+  "Hotkey_Duplicate": "{0} ist in ClipRing schon für eine andere Aktion vergeben.",
   "Hotkey_Taken": "{0} ist von einem anderen Programm belegt.",
   "Hotkeys_Lead": "Feld anklicken und die Tastenkombination drücken. Rücktaste oder Entf entfernt sie, Esc bricht ab. Hotkeys funktionieren auch, während ein Spiel im Vordergrund ist.",
   "Monitor_Primary": "Hauptbildschirm",
@@ -281,5 +282,7 @@
   "Video_RamWarning": "Das ist viel für diesen PC. Kürzere Länge oder niedrigere Bitrate wählen.",
   "Section_Buffer": "Puffer",
   "Row_ClearBufferAfterSave": "Nach dem Speichern neu beginnen",
-  "Desc_ClearBufferAfterSave": "Nach jedem gespeicherten Clip beginnt der Puffer wieder bei 0:00, damit mehrmaliges Drücken nicht dieselbe Szene noch einmal speichert. Automatische Highlights leeren den Puffer nicht."
+  "Desc_ClearBufferAfterSave": "Nach jedem gespeicherten Clip beginnt der Puffer wieder bei 0:00, damit mehrmaliges Drücken nicht dieselbe Szene noch einmal speichert. Automatische Highlights leeren den Puffer nicht.",
+  "Row_SeparateAudioTracks": "Getrennte Tonspuren",
+  "Desc_SeparateAudioTracks": "Zusätzlich zur gemischten Spur je eine Spur nur mit PC-Ton und nur mit Mikrofon, zum getrennten Bearbeiten im Schnittprogramm. Player spielen die gemischte Spur. Wirkt nur, wenn PC-Ton und Mikrofon an sind."
 }

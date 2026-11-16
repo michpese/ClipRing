@@ -14,6 +14,7 @@ namespace ClipRing.Games;
 public sealed partial class GameLibrary
 {
     private readonly object _gate = new();
+    private readonly object _scanGate = new();
     private Dictionary<string, string> _knownExecutables = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _installDirs = new(StringComparer.OrdinalIgnoreCase); // full dir → name
     private List<string> _steamLibraries = new();
@@ -25,11 +26,15 @@ public sealed partial class GameLibrary
     [GeneratedRegex("\"(name|installdir)\"\\s+\"([^\"]*)\"", RegexOptions.IgnoreCase)]
     private static partial Regex AcfField();
 
+    /// <summary>The first scan reads manifests on every drive: it runs in the background, not during startup.</summary>
     public GameLibrary()
     {
         LoadKnownExecutables();
-        Rescan();
+        _ = Task.Run(RescanIfOld);
     }
+
+    /// <summary>Raised after every scan (on the scanning thread).</summary>
+    public event Action? Rescanned;
 
     public IReadOnlyList<string> SteamLibraries
     {
@@ -56,10 +61,19 @@ public sealed partial class GameLibrary
 
     public void RescanIfOld()
     {
-        if (DateTime.UtcNow - _lastScan > TimeSpan.FromMinutes(10)) Rescan();
+        lock (_scanGate)
+        {
+            // Checked inside the lock: a scan that just finished in another thread counts.
+            if (DateTime.UtcNow - _lastScan > TimeSpan.FromMinutes(10)) ScanLocked();
+        }
     }
 
     public void Rescan()
+    {
+        lock (_scanGate) ScanLocked();
+    }
+
+    private void ScanLocked()
     {
         var dirs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var libraries = FindSteamLibraries();
@@ -129,6 +143,8 @@ public sealed partial class GameLibrary
             _lastScan = DateTime.UtcNow;
         }
         Log.Info($"Spielebibliotheken gescannt: {dirs.Count} Installationen, {libraries.Count} Steam-Bibliotheken");
+        try { Rescanned?.Invoke(); }
+        catch (Exception ex) { Log.Warn("Nach dem Bibliotheks-Scan: " + ex.Message); }
     }
 
     private static IEnumerable<string> SafeEnumerate(string dir, string pattern)

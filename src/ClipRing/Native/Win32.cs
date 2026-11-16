@@ -242,15 +242,62 @@ internal static class Win32
     public static extern uint timeEndPeriod(uint period);
 
     // ------------------------------------------------------------- helpers
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool GetExitCodeProcess(IntPtr hProcess, out uint exitCode);
+
+    public const uint STILL_ACTIVE = 259;
+
+    /// <summary>
+    /// Is this process still running this executable? Needs only PROCESS_QUERY_LIMITED_INFORMATION, which
+    /// games protected by kernel anti-cheat still grant (Process.HasExited also wants SYNCHRONIZE and fails
+    /// with "access denied" for some of them). Null if even that is refused.
+    /// </summary>
+    public static bool? IsProcessRunning(uint pid, string exePath)
+    {
+        var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            if (!GetExitCodeProcess(handle, out uint code) || code != STILL_ACTIVE) return false;
+            // Windows reuses process ids: it must still be the same executable.
+            var path = GetProcessPath(handle);
+            return path is null || string.Equals(path, exePath, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    private static string? GetProcessPath(IntPtr handle)
+    {
+        var sb = new StringBuilder(1024);
+        uint size = (uint)sb.Capacity;
+        return QueryFullProcessImageName(handle, 0, sb, ref size) ? sb.ToString(0, (int)size) : null;
+    }
+
+    public delegate void WinEventDelegate(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild,
+                                          uint eventThread, uint eventTime);
+
+    public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
+    /// <summary>Window events delivered as messages to the calling thread: no DLL is loaded into other processes.</summary>
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
+                                                WinEventDelegate callback, uint idProcess, uint idThread, uint flags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(IntPtr hook);
+
     public static string? GetProcessPath(uint pid)
     {
         var handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if (handle == IntPtr.Zero) return null;
         try
         {
-            var sb = new StringBuilder(1024);
-            uint size = (uint)sb.Capacity;
-            return QueryFullProcessImageName(handle, 0, sb, ref size) ? sb.ToString(0, (int)size) : null;
+            return GetProcessPath(handle);
         }
         finally
         {

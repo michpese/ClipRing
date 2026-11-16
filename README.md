@@ -8,7 +8,7 @@
 
 It works like **NVIDIA ShadowPlay (Instant Replay)** or **AMD ReLive**, but it isn't tied to one graphics card brand and it's open source. ClipRing is made for **competitive games**: in Counter-Strike 2 it saves your multi-kills automatically.
 
-> **Early version (0.1).** ClipRing works, but so far it has mainly been tested on one PC with an NVIDIA graphics card and Counter-Strike 2. If something doesn't work on your system, please open an [issue](https://github.com/michpese/ClipRing/issues) and attach the log (see [Tips](#tips)).
+> **Early version (0.2).** ClipRing works, but so far it has mainly been tested on one PC with an NVIDIA graphics card and Counter-Strike 2. If something doesn't work on your system, please open an [issue](https://github.com/michpese/ClipRing/issues) and attach the log (see [Tips](#tips)).
 
 ## What it does
 
@@ -19,7 +19,7 @@ It works like **NVIDIA ShadowPlay (Instant Replay)** or **AMD ReLive**, but it i
 - **Dual-mode monitors:** if your monitor switches between e.g. 4K 240 Hz and 1080p 480 Hz, ClipRing follows the switch and remembers frame rate and resolution for each mode.
 - **Automatic CS2 highlights:** 2K, 3K, 4K and aces are saved on their own. By default only in Competitive and Premier, so deathmatch doesn't flood your folder.
 - **Tidy clips:** every game gets its own folder, and files are named after the game, date and time.
-- **Game and microphone audio,** each with its own volume.
+- **Game and microphone audio,** each with its own volume, optionally also on separate tracks for editing.
 - **Stays out of the way:** sits in the notification area, can start with Windows, and the hotkeys also work in fullscreen games.
 - **English and German.**
 - **One file:** no installation, nothing else to download.
@@ -74,7 +74,7 @@ Only Valve and FACEIT can make guarantees, but ClipRing does nothing that anti-c
 
 ClipRing continuously records your screen with your graphics card and keeps the last minutes in memory instead of writing to your SSD all the time. When you press the hotkey, it saves exactly that part as an MP4, without re-encoding, so it's quick and the quality stays the same. Recording and encoding are done by [FFmpeg](https://ffmpeg.org), which is built into ClipRing.
 
-Known limits: game audio and microphone end up on one audio track, HDR is recorded as SDR, and copy-protected video shows up black.
+Known limits: HDR is recorded as SDR, and copy-protected video shows up black.
 
 ## For developers
 
@@ -88,7 +88,7 @@ You need Windows and the [.NET 10 SDK](https://dotnet.microsoft.com/download) (`
 
 If PowerShell blocks the script: `powershell -ExecutionPolicy Bypass -File .\build.ps1`.
 
-- Every push is built on GitHub (Windows). The build also starts the app, opens every page in both languages and checks the built-in FFmpeg.
+- Every push is built on GitHub (Windows). The build runs the unit tests (`dotnet test tests/ClipRing.Tests`), starts the app, opens every page in both languages and checks the built-in FFmpeg.
 - A tag such as `v0.2.0` automatically creates a release.
 - Texts live in `src/ClipRing/Localization/de.json` and `en.json`.
 - Code overview: `Capture/` (screen capture, encoders, memory buffer, saving), `Audio/`, `Games/` (game detection), `Highlights/` (CS2), `UI/`, `Services/`.

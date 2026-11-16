@@ -1,8 +1,10 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using ClipRing.Core;
 using ClipRing.Native;
 using NAudio.CoreAudioApi;
+using NAudio.CoreAudioApi.Interfaces;
 
 namespace ClipRing.Audio;
 
@@ -11,11 +13,22 @@ namespace ClipRing.Audio;
 /// mixing PC audio (WASAPI loopback) and microphone with individual gains. The output is a
 /// gap-free float32 PCM stream for ffmpeg's stdin whose first sample has a known wall-clock
 /// time, which keeps audio and video in sync (see PipelineBuilder.BuildRecordArgs).
+/// <para>
+/// Only active while something needs it (a recording with sound, a visible level meter): when idle, the
+/// devices are closed (no microphone indicator in the taskbar), the mixer thread is gone and the 1 ms timer
+/// resolution is released.
+/// </para>
 /// </summary>
 public sealed class AudioEngine : IDisposable
 {
     public const int SampleRate = 48000;
     public const int Channels = 2;
+
+    /// <summary>
+    /// Channels of the stream with separate tracks: mix L/R (clamped like the normal stream), PC audio L/R,
+    /// microphone L/R. FFmpeg splits them into three stereo tracks.
+    /// </summary>
+    public const int SeparateChannels = 6;
 
     private readonly object _sourceGate = new();
     private readonly object _outGate = new();
@@ -34,16 +47,20 @@ public sealed class AudioEngine : IDisposable
     private volatile float _systemPeak, _micPeak;
 
     private PipeWriter? _writer;
+    private volatile bool _separate;
     private bool _awaitingAttach;
     private double _streamStartUnix = double.NaN;
     private bool _overflowReported;
 
-    /// <summary>More audio than this waiting for ffmpeg means it stopped reading for good.</summary>
-    private const long MaxQueuedBytes = SampleRate * Channels * sizeof(float) * 120L;
+    /// <summary>More audio than this waiting for ffmpeg means it stopped reading for good (two minutes).</summary>
+    private long MaxQueuedBytes => SampleRate * (_separate ? SeparateChannels : Channels) * sizeof(float) * 120L;
 
+    private readonly object _lifeGate = new();
     private Thread? _thread;
     private volatile bool _running;
     private Timer? _deviceWatch;
+    private MMDeviceEnumerator? _notifyEnumerator;
+    private DeviceNotifications? _notifications;
 
     /// <summary>Raised (on the mixer thread) when the clock jumped and the A/V relation is lost.</summary>
     public event Action? SyncLost;
@@ -57,13 +74,79 @@ public sealed class AudioEngine : IDisposable
 
     private static double UnixNow() => (DateTime.UtcNow - DateTime.UnixEpoch).Ticks / (double)TimeSpan.TicksPerSecond;
 
-    public void Start()
+    public bool IsActive => _running;
+
+    /// <summary>Opens the devices and starts the mixer, or closes everything again.</summary>
+    public void SetActive(bool active)
     {
-        if (_running) return;
-        _running = true;
-        _thread = new Thread(MixLoop) { IsBackground = true, Name = "audio-mixer", Priority = ThreadPriority.Highest };
-        _thread.Start();
-        _deviceWatch = new Timer(_ => WatchDevices(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        lock (_lifeGate)
+        {
+            if (active == _running) return;
+            if (active)
+            {
+                _running = true;
+                Rebuild(force: false);
+                _thread = new Thread(MixLoop) { IsBackground = true, Name = "audio-mixer", Priority = ThreadPriority.Highest };
+                _thread.Start();
+                StartDeviceWatch();
+                Log.Info("Tonaufnahme aktiv");
+            }
+            else
+            {
+                _running = false;
+                StopDeviceWatch();
+                _thread?.Join(1000);
+                _thread = null;
+                DetachOutput();
+                Rebuild(force: false); // closes the devices while not running
+                _systemPeak = 0;
+                _micPeak = 0;
+                Log.Info("Tonaufnahme ruht, Geräte geschlossen");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Default-device switches (headset plugged in) arrive as notifications; the slow timer only recovers
+    /// devices that stopped without one.
+    /// </summary>
+    private void StartDeviceWatch()
+    {
+        _deviceWatch = new Timer(_ => WatchDevices(), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        try
+        {
+            _notifyEnumerator = new MMDeviceEnumerator();
+            _notifications = new DeviceNotifications(() => ThreadPool.QueueUserWorkItem(_ => WatchDevices()));
+            _notifyEnumerator.RegisterEndpointNotificationCallback(_notifications);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Benachrichtigungen über Audiogeräte nicht verfügbar: " + ex.Message);
+            _notifications = null;
+        }
+    }
+
+    private void StopDeviceWatch()
+    {
+        _deviceWatch?.Dispose();
+        _deviceWatch = null;
+        try
+        {
+            if (_notifications is not null) _notifyEnumerator?.UnregisterEndpointNotificationCallback(_notifications);
+        }
+        catch { /* enumerator already gone */ }
+        _notifications = null;
+        _notifyEnumerator?.Dispose();
+        _notifyEnumerator = null;
+    }
+
+    private sealed class DeviceNotifications(Action changed) : IMMNotificationClient
+    {
+        public void OnDeviceStateChanged(string deviceId, DeviceState newState) => changed();
+        public void OnDeviceAdded(string pwstrDeviceId) { }
+        public void OnDeviceRemoved(string deviceId) => changed();
+        public void OnDefaultDeviceChanged(DataFlow flow, Role role, string defaultDeviceId) => changed();
+        public void OnPropertyValueChanged(string pwstrDeviceId, PropertyKey key) { }
     }
 
     /// <summary>Enables/disables the sources and selects devices ("" = Windows default).</summary>
@@ -76,7 +159,7 @@ public sealed class AudioEngine : IDisposable
             _micEnabled = micEnabled;
             _micId = micDeviceId ?? "";
         }
-        Rebuild(force: false);
+        if (_running) Rebuild(force: false);
     }
 
     private void Rebuild(bool force)
@@ -94,7 +177,8 @@ public sealed class AudioEngine : IDisposable
             string sysId, micId;
             lock (_sourceGate)
             {
-                sysEnabled = _systemEnabled; micEnabled = _micEnabled;
+                // Not running: no device stays open.
+                sysEnabled = _systemEnabled && _running; micEnabled = _micEnabled && _running;
                 sysId = _systemId; micId = _micId;
             }
 
@@ -130,13 +214,14 @@ public sealed class AudioEngine : IDisposable
 
         var device = AudioDevices.Resolve(enumerator, flow, wantedId);
         if (device is null) return null;
+        string name = device.FriendlyName;
         try
         {
-            return new CaptureSource(device, loopback: flow == DataFlow.Render);
+            return new CaptureSource(device, loopback: flow == DataFlow.Render); // owns the device from here on
         }
         catch (Exception ex)
         {
-            Log.Error($"Audiogerät '{device.FriendlyName}' konnte nicht geöffnet werden", ex);
+            Log.Error($"Audiogerät '{name}' konnte nicht geöffnet werden", ex);
             return null;
         }
     }
@@ -144,6 +229,7 @@ public sealed class AudioEngine : IDisposable
     /// <summary>Follows default-device switches (e.g. headset plugged in) and recovers lost devices.</summary>
     private void WatchDevices()
     {
+        if (!_running) return;
         try
         {
             bool needRebuild = false;
@@ -171,10 +257,12 @@ public sealed class AudioEngine : IDisposable
     /// Starts a new output stream. Returns the wall-clock time (Unix seconds) of its first
     /// sample; samples are buffered until <see cref="AttachOutput"/> provides the pipe.
     /// </summary>
-    public double BeginStream()
+    /// <param name="separateTracks">Six channels (mix, PC audio, microphone) instead of the stereo mix.</param>
+    public double BeginStream(bool separateTracks = false)
     {
         lock (_outGate)
         {
+            _separate = separateTracks;
             _writer?.Dispose();
             _writer = null;
             _backlog.SetLength(0);
@@ -232,6 +320,9 @@ public sealed class AudioEngine : IDisposable
             long produced = 0;
             var mix = new float[SampleRate * Channels];
             var scratch = new float[SampleRate * Channels];
+            var systemOnly = new float[SampleRate * Channels];
+            var micOnly = new float[SampleRate * Channels];
+            var wide = new float[SampleRate * SeparateChannels];
 
             while (_running)
             {
@@ -258,24 +349,40 @@ public sealed class AudioEngine : IDisposable
                 double chunkStart = anchor + produced / (double)SampleRate;
                 bool keepingUp = frames <= SampleRate / 10; // don't trim latency while catching up
 
-                Array.Clear(mix, 0, frames * Channels);
+                bool separate = _separate;
+                int samples = frames * Channels;
+                Array.Clear(systemOnly, 0, samples);
+                Array.Clear(micOnly, 0, samples);
                 float sysPeak = 0, micPeak = 0;
                 lock (_sourceGate)
                 {
-                    if (_system is not null) sysPeak = _system.MixInto(mix, scratch, frames, _systemGain, keepingUp);
-                    if (_mic is not null) micPeak = _mic.MixInto(mix, scratch, frames, _micGain, keepingUp);
+                    if (_system is not null) sysPeak = _system.MixInto(systemOnly, scratch, frames, _systemGain, keepingUp);
+                    if (_mic is not null) micPeak = _mic.MixInto(micOnly, scratch, frames, _micGain, keepingUp);
                 }
-                for (int i = 0; i < frames * Channels; i++)
-                {
-                    float v = mix[i];
-                    if (v > 1f) mix[i] = 1f;
-                    else if (v < -1f) mix[i] = -1f;
-                }
+                for (int i = 0; i < samples; i++) mix[i] = Clamp(systemOnly[i] + micOnly[i]);
                 _systemPeak = Math.Max(sysPeak, _systemPeak * 0.8f);
                 _micPeak = Math.Max(micPeak, _micPeak * 0.8f);
 
-                var bytes = MemoryMarshal.AsBytes(mix.AsSpan(0, frames * Channels));
-                Write(bytes, chunkStart);
+                ReadOnlySpan<byte> bytes;
+                if (separate)
+                {
+                    for (int f = 0; f < frames; f++)
+                    {
+                        int i = f * Channels, o = f * SeparateChannels;
+                        wide[o] = mix[i];
+                        wide[o + 1] = mix[i + 1];
+                        wide[o + 2] = Clamp(systemOnly[i]);
+                        wide[o + 3] = Clamp(systemOnly[i + 1]);
+                        wide[o + 4] = Clamp(micOnly[i]);
+                        wide[o + 5] = Clamp(micOnly[i + 1]);
+                    }
+                    bytes = MemoryMarshal.AsBytes(wide.AsSpan(0, frames * SeparateChannels));
+                }
+                else
+                {
+                    bytes = MemoryMarshal.AsBytes(mix.AsSpan(0, samples));
+                }
+                Write(bytes, chunkStart, separate);
                 produced += frames;
             }
         }
@@ -289,10 +396,14 @@ public sealed class AudioEngine : IDisposable
         }
     }
 
-    private void Write(ReadOnlySpan<byte> bytes, double chunkStart)
+    private static float Clamp(float v) => v > 1f ? 1f : v < -1f ? -1f : v;
+
+    private void Write(ReadOnlySpan<byte> bytes, double chunkStart, bool separate)
     {
         lock (_outGate)
         {
+            // Mixed just before a new stream switched the channel layout: doesn't fit that stream.
+            if (separate != _separate) return;
             if (_awaitingAttach)
             {
                 if (double.IsNaN(_streamStartUnix))
@@ -301,7 +412,7 @@ public sealed class AudioEngine : IDisposable
                     _streamAnchored.Set();
                 }
                 _backlog.Write(bytes);
-                if (_backlog.Length > SampleRate * Channels * sizeof(float) * 10L)
+                if (_backlog.Length > SampleRate * SeparateChannels * sizeof(float) * 10L)
                 {
                     // Nobody attached within 10 s (ffmpeg failed to start): stop buffering.
                     _awaitingAttach = false;
@@ -331,7 +442,7 @@ public sealed class AudioEngine : IDisposable
     private sealed class PipeWriter : IDisposable
     {
         private readonly Stream _stream;
-        private readonly BlockingCollection<byte[]> _queue = new();
+        private readonly BlockingCollection<(byte[] Chunk, int Length)> _queue = new();
         private long _queued, _written, _lastWriteTicks, _writeSinceTicks;
         private volatile string? _error;
 
@@ -344,32 +455,42 @@ public sealed class AudioEngine : IDisposable
         public bool Failed => _error is not null;
         public long QueuedBytes => Interlocked.Read(ref _queued);
 
+        /// <summary>Copies the chunk into a pooled array (the mixer calls this ~200 times a second).</summary>
         public void Enqueue(ReadOnlySpan<byte> data)
         {
-            var chunk = data.ToArray();
-            Interlocked.Add(ref _queued, chunk.Length);
-            try { _queue.Add(chunk); }
-            catch (InvalidOperationException) { Interlocked.Add(ref _queued, -chunk.Length); } // disposed
+            var chunk = ArrayPool<byte>.Shared.Rent(data.Length);
+            data.CopyTo(chunk);
+            Interlocked.Add(ref _queued, data.Length);
+            try
+            {
+                _queue.Add((chunk, data.Length));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException) // writer ended
+            {
+                Interlocked.Add(ref _queued, -data.Length);
+                ArrayPool<byte>.Shared.Return(chunk);
+            }
         }
 
         private void Run()
         {
             try
             {
-                foreach (var chunk in _queue.GetConsumingEnumerable())
+                foreach (var (chunk, length) in _queue.GetConsumingEnumerable())
                 {
                     Interlocked.Exchange(ref _writeSinceTicks, DateTime.UtcNow.Ticks);
                     try
                     {
-                        _stream.Write(chunk, 0, chunk.Length);
+                        _stream.Write(chunk, 0, length);
                         _stream.Flush();
-                        Interlocked.Add(ref _written, chunk.Length);
+                        Interlocked.Add(ref _written, length);
                         Interlocked.Exchange(ref _lastWriteTicks, DateTime.UtcNow.Ticks);
                     }
                     finally
                     {
-                        Interlocked.Add(ref _queued, -chunk.Length);
+                        Interlocked.Add(ref _queued, -length);
                         Interlocked.Exchange(ref _writeSinceTicks, 0);
+                        ArrayPool<byte>.Shared.Return(chunk);
                     }
                 }
             }
@@ -378,6 +499,12 @@ public sealed class AudioEngine : IDisposable
                 // ffmpeg went away; the recorder reports that separately.
                 _error = ex.Message;
                 Log.Info("Ton-Pipe zu FFmpeg beendet: " + ex.Message);
+            }
+            finally
+            {
+                // The queue belongs to this thread; it ends only after CompleteAdding or a dead pipe.
+                try { _queue.CompleteAdding(); } catch (ObjectDisposedException) { }
+                _queue.Dispose();
             }
         }
 
@@ -405,15 +532,13 @@ public sealed class AudioEngine : IDisposable
 
     public void Dispose()
     {
-        _running = false;
-        _deviceWatch?.Dispose();
-        _thread?.Join(1000);
-        lock (_sourceGate)
+        SetActive(false);
+        lock (_outGate)
         {
-            _system?.Dispose();
-            _mic?.Dispose();
-            _system = null;
-            _mic = null;
+            _writer?.Dispose();
+            _writer = null;
         }
+        _streamAnchored.Dispose();
+        _backlog.Dispose();
     }
 }

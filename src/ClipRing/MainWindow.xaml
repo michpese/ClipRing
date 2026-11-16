@@ -425,6 +425,9 @@
                         <TextBlock Text="{l:T Section_AudioTrack}" Style="{StaticResource Text.SectionTitle}" />
                         <Border Style="{StaticResource Sheet}">
                             <StackPanel>
+                                <ui:SettingRow Title="{l:T Row_SeparateAudioTracks}" Description="{l:T Desc_SeparateAudioTracks}">
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.SeparateAudioTracks}" />
+                                </ui:SettingRow>
                                 <ui:SettingRow Title="{l:T Row_AudioBitrate}" Description="{l:T Desc_AudioBitrate}">
                                     <ComboBox Width="200" ItemsSource="{Binding AudioBitrateOptions}" DisplayMemberPath="Label"
                                               SelectedValuePath="Value" SelectedValue="{Binding Settings.AudioBitrateKbps}" />

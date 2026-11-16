@@ -89,7 +89,9 @@ public readonly record struct HotkeyBinding(HotkeyModifiers Modifiers, Key Key)
             "ende" => Key.End,
             "bildauf" or "pgup" => Key.PageUp,
             "bildab" or "pgdn" => Key.PageDown,
-            _ => Enum.TryParse<Key>(text, ignoreCase: true, out var k) ? k : Key.None,
+            // Enum.TryParse also takes numbers ("12" = Key.Clear); key names only.
+            _ when text.All(char.IsDigit) => Key.None,
+            _ => Enum.TryParse<Key>(text, ignoreCase: true, out var k) && Enum.IsDefined(k) ? k : Key.None,
         };
     }
 
@@ -152,6 +154,10 @@ public sealed class HotkeyManager : IDisposable
         Unregister(name);
         var binding = HotkeyBinding.Parse(text);
         if (binding is null) return null; // empty = disabled
+
+        // Windows would refuse the second registration too, but "taken by another program" would be wrong.
+        if (_entries.Values.Any(e => e.Binding.Equals(binding.Value)))
+            return Loc.F("Hotkey_Duplicate", binding.Value.Display());
 
         var entry = new Entry(_nextId++, binding.Value, callback);
         _entries[name] = entry;

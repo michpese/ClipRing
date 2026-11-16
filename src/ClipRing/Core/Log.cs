@@ -16,11 +16,12 @@ public static class Log
         try
         {
             Directory.CreateDirectory(AppPaths.LogDir);
-            CurrentFile = Path.Combine(AppPaths.LogDir, $"cliprings-{DateTime.Now:yyyy-MM-dd}.log");
+            CurrentFile = Path.Combine(AppPaths.LogDir, $"clipring-{DateTime.Now:yyyy-MM-dd}.log");
             var fs = new FileStream(CurrentFile, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
             _writer = new StreamWriter(fs, new UTF8Encoding(false)) { AutoFlush = true };
 
-            foreach (var old in Directory.EnumerateFiles(AppPaths.LogDir, "cliprings-*.log"))
+            // "cliprings-*.log": the name up to 0.1.3.
+            foreach (var old in Directory.EnumerateFiles(AppPaths.LogDir, "clipring*-*.log"))
             {
                 if (File.GetLastWriteTime(old) < DateTime.Now.AddDays(-7))
                 {

@@ -119,6 +119,7 @@
   "Hotkey_NeedModifier": "Please combine with Ctrl, Alt or Shift",
   "Hotkey_None": "Not set",
   "Hotkey_Press": "Press a key combination …",
+  "Hotkey_Duplicate": "{0} is already used for another action in ClipRing.",
   "Hotkey_Taken": "{0} is already used by another program.",
   "Hotkeys_Lead": "Click a field and press the key combination. Backspace or Delete removes it, Esc cancels. Hotkeys also work while a game is in the foreground.",
   "Monitor_Primary": "main display",
@@ -281,5 +282,7 @@
   "Video_RamWarning": "That's a lot for this PC. Choose a shorter length or a lower bitrate.",
   "Section_Buffer": "Buffer",
   "Row_ClearBufferAfterSave": "Start over after saving",
-  "Desc_ClearBufferAfterSave": "After every saved clip the buffer starts again at 0:00, so pressing the hotkey again doesn't save the same scene twice. Automatic highlights don't clear the buffer."
+  "Desc_ClearBufferAfterSave": "After every saved clip the buffer starts again at 0:00, so pressing the hotkey again doesn't save the same scene twice. Automatic highlights don't clear the buffer.",
+  "Row_SeparateAudioTracks": "Separate audio tracks",
+  "Desc_SeparateAudioTracks": "Besides the mixed track, one track with only PC audio and one with only the microphone, to edit them separately in a video editor. Players play the mixed track. Only works with both PC audio and microphone on."
 }

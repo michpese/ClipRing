@@ -40,6 +40,8 @@ public sealed class MainViewModel : ObservableObject
         OpenLogsCommand = new RelayCommand(() => Shell.Open(AppPaths.LogDir));
         RefreshDevicesCommand = new RelayCommand(RefreshDevices);
 
+        // The library scan runs in the background; the CS2 status depends on where Steam keeps CS2.
+        Service.Library.Rescanned += () => App.Current?.Dispatcher.InvokeAsync(UpdateCs2InstallStatus);
         UpdateCs2InstallStatus();
     }
 
@@ -49,7 +51,25 @@ public sealed class MainViewModel : ObservableObject
     public string VersionText => $"ClipRing {typeof(MainViewModel).Assembly.GetName().Version?.ToString(3) ?? "0.1.0"}";
 
     private int _selectedPage;
-    public int SelectedPage { get => _selectedPage; set => Set(ref _selectedPage, value); }
+    public int SelectedPage
+    {
+        get => _selectedPage;
+        set { if (Set(ref _selectedPage, value)) UpdateLevelMeters(); }
+    }
+
+    /// <summary>The main window is on screen (not hidden in the tray, not minimized).</summary>
+    private bool _windowShown;
+    public bool WindowShown
+    {
+        get => _windowShown;
+        set { if (Set(ref _windowShown, value)) UpdateLevelMeters(); }
+    }
+
+    private const int OverviewPage = 0, AudioPage = 2;
+
+    /// <summary>Level meters need open audio devices; outside a recording only while one is visible.</summary>
+    private void UpdateLevelMeters()
+        => Service.SetLevelMetersVisible(WindowShown && SelectedPage is OverviewPage or AudioPage);
 
     private int _saveFlashCount;
     public int SaveFlashCount { get => _saveFlashCount; private set => Set(ref _saveFlashCount, value); }
@@ -200,17 +220,26 @@ public sealed class MainViewModel : ObservableObject
         System.Windows.Data.CollectionViewSource.GetDefaultView(Service.RecentClips)?.Refresh();
     }
 
+    /// <summary>Lists the audio devices in the background (Windows' device query can take a moment).</summary>
     private void RefreshDevices()
     {
-        try
+        _ = Task.Run(() =>
         {
-            OutputDevices.Update(AudioDevices.List(DataFlow.Render).Select(d => (d.Id, d.Name)));
-            InputDevices.Update(AudioDevices.List(DataFlow.Capture).Select(d => (d.Id, d.Name)));
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("Audiogeräte nicht lesbar: " + ex.Message);
-        }
+            try
+            {
+                var outputs = AudioDevices.List(DataFlow.Render);
+                var inputs = AudioDevices.List(DataFlow.Capture);
+                App.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    OutputDevices.Update(outputs.Select(d => (d.Id, d.Name)));
+                    InputDevices.Update(inputs.Select(d => (d.Id, d.Name)));
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Audiogeräte nicht lesbar: " + ex.Message);
+            }
+        });
     }
 
     // ---------------------------------------------------------------- derived settings
@@ -365,6 +394,15 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
+        // Settings also change on background threads (codec fallback after the encoder check, monitor
+        // mode profiles); the option lists below are bound to the UI and may only change on its thread.
+        var dispatcher = App.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.InvokeAsync(() => OnSettingsPropertyChanged(sender, e));
+            return;
+        }
+
         switch (e.PropertyName)
         {
             case nameof(AppSettings.Quality):

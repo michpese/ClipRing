@@ -37,6 +37,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private ReplayRecorder? _recorder;
     private PipelineSpec? _pipeline;
     private bool _pipelineHasAudio;
+    private bool _pipelineSeparateAudio;
     private Cs2GameStateServer? _cs2;
     private bool _userPaused;
     private int _failures;
@@ -285,11 +286,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
     public async Task InitializeAsync()
     {
         Settings.PropertyChanged += OnSettingsChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         _games.CurrentChanged += OnGameChanged;
         _games.Start();
         _highlights.ClipRequested += clip => _ = SaveClipAsync(clip.Seconds, clip.Tag, clip.Game, "Highlight", clip.End);
         _audio.SyncLost += () => ScheduleRestart("Audio-Uhr", TimeSpan.FromSeconds(1), reprobe: false);
-        _audio.Start();
         ApplyGains();
         await Task.Run(ApplyAudioConfig);
         _ = Task.Run(LoadRecentClips);
@@ -530,13 +531,22 @@ public sealed class ReplayService : ObservableObject, IDisposable
     /// <summary>Re-detects ffmpeg + hardware (after the user changed the ffmpeg path or drivers).</summary>
     public async Task RedetectAsync()
     {
+        // The detection runs under the lifecycle lock, so no restart (timer, settings change, a second click)
+        // can start a recording with half-detected monitors or encoders.
+        bool detected;
         await _life.WaitAsync();
-        try { StopRecorder(); }
-        finally { _life.Release(); }
-
-        PipelineSelector.InvalidateCache(Settings);
-        ResetAudioFallback();
-        if (await DetectEnvironmentAsync(forceEncoderCheck: true))
+        try
+        {
+            StopRecorder();
+            PipelineSelector.InvalidateCache(Settings);
+            ResetAudioFallback();
+            detected = await DetectEnvironmentAsync(forceEncoderCheck: true);
+        }
+        finally
+        {
+            _life.Release();
+        }
+        if (detected)
         {
             ApplyHighlights();
             await RestartAsync("Neu erkennen");
@@ -556,9 +566,44 @@ public sealed class ReplayService : ObservableObject, IDisposable
         var recorder = _recorder;
         _recorder = null;
         _recordingMonitor = null;
-        if (recorder is null) return;
-        recorder.Stop();
-        recorder.Dispose();
+        if (recorder is not null)
+        {
+            recorder.Stop();
+            recorder.Dispose();
+        }
+        SetRecordingAudio(false);
+    }
+
+    // ---------------------------------------------------------------- audio activity
+    private readonly object _audioActivityGate = new();
+    private bool _recordingAudio;
+    private bool _levelMetersVisible;
+
+    /// <summary>The UI shows a level meter (overview or audio page in a visible window).</summary>
+    public void SetLevelMetersVisible(bool visible)
+    {
+        // Opening audio devices takes a moment: not on the UI thread.
+        _ = Task.Run(() =>
+        {
+            lock (_audioActivityGate)
+            {
+                _levelMetersVisible = visible;
+                _audio.SetActive(_recordingAudio || _levelMetersVisible);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Audio devices are open only while a recording with sound runs or a level meter is visible: no
+    /// microphone access, mixer thread or 1 ms timer while paused or waiting for a game.
+    /// </summary>
+    private void SetRecordingAudio(bool recording)
+    {
+        lock (_audioActivityGate)
+        {
+            _recordingAudio = recording;
+            _audio.SetActive(_recordingAudio || _levelMetersVisible);
+        }
     }
 
     public async Task RestartAsync(string reason)
@@ -608,7 +653,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
             bool withAudio = (Settings.CaptureSystemAudio || Settings.CaptureMicrophone) && !_audioFallback;
             if (_audioFallback) Log.Warn("Starte ohne Tonspur (Ausweichbetrieb nach Startproblemen mit Ton)");
             double? audioStart = null;
-            if (withAudio) audioStart = _audio.BeginStream() + Settings.AudioOffsetMs / 1000.0;
+            if (withAudio)
+            {
+                SetRecordingAudio(true);
+                audioStart = _audio.BeginStream(PipelineBuilder.SeparateAudioTracks(Settings)) + Settings.AudioOffsetMs / 1000.0;
+            }
 
             nint window = 0;
             if (Settings.CaptureMethod == CaptureMethod.GameWindow && pipeline.Source == VideoSource.Wgc)
@@ -629,6 +678,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             _recorder = recorder; // before Start: its events may fire right away
             _pipeline = pipeline;
             _pipelineHasAudio = withAudio;
+            _pipelineSeparateAudio = withAudio && PipelineBuilder.SeparateAudioTracks(Settings);
             _recordingWindow = window;
             _recordingMonitor = monitor;
             try
@@ -640,6 +690,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 _recorder = null;
                 _audio.DetachOutput();
                 recorder.Dispose();
+                SetRecordingAudio(false);
                 SetError(() => Loc.F("Err_FfmpegStart", ex.Message));
                 return;
             }
@@ -658,6 +709,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Log.Error("Replay konnte nicht gestartet werden", ex);
+            if (_recorder is null) SetRecordingAudio(false);
             SetError(() => Loc.F("Err_ReplayStart", ex.Message));
         }
         finally
@@ -818,9 +870,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
         string game = gameOverride ?? _games.ResolveForClip()?.DisplayName ?? "Desktop";
         // Highlights don't clear the buffer: a hotkey save right after one should still have the whole time.
+        // A hotkey save during a highlight round keeps that round's beginning.
         var request = new ClipRequest(Math.Min(seconds, Settings.BufferSeconds), game, end ?? DateTime.Now, tag, reason,
-                                      EndAtTimestamp: end is not null, ClearBuffer: manual && Settings.ClearBufferAfterSave);
-        IsSaving = true;
+                                      EndAtTimestamp: end is not null, ClearBuffer: manual && Settings.ClearBufferAfterSave,
+                                      KeepFromUtc: _highlights.ProtectedSinceUtc);
+        if (Interlocked.Increment(ref _savesRunning) == 1) IsSaving = true;
         try
         {
             var clip = await _saver.SaveAsync(_buffer, ffmpeg, Settings, request);
@@ -844,9 +898,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
         finally
         {
-            IsSaving = false;
+            if (Interlocked.Decrement(ref _savesRunning) == 0) IsSaving = false;
         }
     }
+
+    private int _savesRunning; // saves can overlap (hotkey during a highlight)
 
     private void LoadRecentClips()
     {
@@ -855,8 +911,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
             var root = Settings.OutputFolder;
             if (!Directory.Exists(root)) return;
 
+            // Game subfolders only (two levels); protected folders (e.g. when the output is a drive root) are skipped.
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MaxRecursionDepth = 2 };
+
             // Leftovers of interrupted saves (".<name>.part.mp4") older than 10 minutes.
-            foreach (var part in new DirectoryInfo(root).EnumerateFiles(".*.part.mp4", SearchOption.AllDirectories))
+            foreach (var part in new DirectoryInfo(root).EnumerateFiles(".*.part.mp4", options))
             {
                 if (DateTime.Now - part.LastWriteTime < TimeSpan.FromMinutes(10)) continue;
                 try
@@ -868,7 +927,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             }
 
             var files = new DirectoryInfo(root)
-                .EnumerateFiles("*.mp4", SearchOption.AllDirectories)
+                .EnumerateFiles("*.mp4", options)
                 .Where(f => !f.Name.StartsWith('.'))
                 .OrderByDescending(f => f.LastWriteTime)
                 .Take(15)
@@ -879,6 +938,12 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 .ToList();
             _ui.InvokeAsync(() =>
             {
+                // Clips of another folder (the output folder changed) don't belong in the list any more.
+                string prefix = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar;
+                for (int i = RecentClips.Count - 1; i >= 0; i--)
+                {
+                    if (!RecentClips[i].FilePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) RecentClips.RemoveAt(i);
+                }
                 foreach (var clip in files)
                 {
                     if (RecentClips.All(c => c.FilePath != clip.FilePath)) RecentClips.Add(clip);
@@ -945,9 +1010,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 NotifyEstimates();
                 bool wasFallback = _audioFallback;
                 ResetAudioFallback();
-                // Only the presence of an audio track needs a new ffmpeg process.
+                // Only the presence of an audio track (or the number of tracks) needs a new ffmpeg process.
                 bool wantsAudio = Settings.CaptureSystemAudio || Settings.CaptureMicrophone;
-                if (_recorder is not null && (wantsAudio != _pipelineHasAudio || wasFallback))
+                bool separate = PipelineBuilder.SeparateAudioTracks(Settings);
+                if (_recorder is not null && (wantsAudio != _pipelineHasAudio || separate != _pipelineSeparateAudio || wasFallback))
                     ScheduleRestart(name, RestartDebounce, reprobe: false);
                 break;
             case nameof(AppSettings.OnlyWhenGameRunning):
@@ -1025,6 +1091,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
                     _highlights.ReportKills(Cs2GameStateServer.GameName, kills, hs, Settings.Cs2MinKills);
                 };
                 server.RoundEnded += _highlights.EndRound;
+                server.RoundFinished += _highlights.FinishRound;
                 server.Start();
                 _cs2 = server;
             }
@@ -1066,6 +1133,12 @@ public sealed class ReplayService : ObservableObject, IDisposable
         _ => mode is "competitive" or "premier",
     };
 
+    /// <summary>
+    /// Windows reports a display change: run the monitor check with the next stats tick instead of waiting up
+    /// to two seconds. The check itself stays in the timer (it confirms a new mode over two looks).
+    /// </summary>
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e) => Interlocked.Exchange(ref _statsTick, 7);
+
     private void UpdateStats()
     {
         if (Interlocked.Exchange(ref _statsBusy, 1) == 1) return; // timer callbacks may overlap
@@ -1073,7 +1146,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         {
             var (seconds, bytes, _) = _buffer.Stats;
             bool producing = _recorder?.HasProducedData == true;
-            BufferedSeconds = producing ? seconds : 0;
+            // Whole fragments are evicted, so the buffer holds up to one keyframe interval more than set.
+            BufferedSeconds = producing ? Math.Min(seconds, Settings.BufferSeconds) : 0;
             BufferFill = producing && Settings.BufferSeconds > 0 ? Math.Clamp(seconds / Settings.BufferSeconds, 0, 1) : 0;
             BufferBytesText = FormatBytes(producing ? bytes : 0);
             SystemPeak = _audio.SystemPeak;
@@ -1124,6 +1198,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         Settings.PropertyChanged -= OnSettingsChanged;
+        Loc.LanguageChanged -= OnLanguageChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
         lock (_timerGate)
         {
             _restartTimer?.Dispose();

@@ -70,12 +70,7 @@ public static class PipelineBuilder
             EncoderBackend.Amf => $"{c}_amf",
             EncoderBackend.Qsv => $"{c}_qsv",
             EncoderBackend.D3D12 => $"{c}_d3d12va",
-            EncoderBackend.Software => codec switch
-            {
-                VideoCodec.Hevc => "libx265",
-                VideoCodec.Av1 => "libsvtav1",
-                _ => "libx264",
-            },
+            EncoderBackend.Software => "libx264", // the only software encoder offered (see EncoderCapabilities.Usable)
             _ => throw new ArgumentOutOfRangeException(nameof(backend)),
         };
     }
@@ -410,31 +405,11 @@ public static class PipelineBuilder
                 break;
 
             case EncoderBackend.Software:
-                switch (codec)
+                a.AddRange(new[]
                 {
-                    case VideoCodec.Av1:
-                        a.AddRange(new[]
-                        {
-                            "-preset", s.Speed switch { EncoderSpeed.Fast => "11", EncoderSpeed.Quality => "7", _ => "9" },
-                            "-b:v", b, "-g", gop,
-                        });
-                        break;
-                    case VideoCodec.Hevc:
-                        a.AddRange(new[]
-                        {
-                            "-preset", s.Speed switch { EncoderSpeed.Fast => "ultrafast", EncoderSpeed.Quality => "faster", _ => "superfast" },
-                            "-b:v", b, "-maxrate", max, "-bufsize", buf, "-g", gop,
-                            "-x265-params", "log-level=error",
-                        });
-                        break;
-                    default:
-                        a.AddRange(new[]
-                        {
-                            "-preset", s.Speed switch { EncoderSpeed.Fast => "veryfast", EncoderSpeed.Quality => "medium", _ => "faster" },
-                            "-b:v", b, "-maxrate", max, "-bufsize", buf, "-g", gop,
-                        });
-                        break;
-                }
+                    "-preset", s.Speed switch { EncoderSpeed.Fast => "veryfast", EncoderSpeed.Quality => "medium", _ => "faster" },
+                    "-b:v", b, "-maxrate", max, "-bufsize", buf, "-g", gop,
+                });
                 break;
         }
         // Closed GOPs: every fragment in the RAM buffer must be decodable on its own.
@@ -454,10 +429,14 @@ public static class PipelineBuilder
     /// Output is fragmented MP4 (one fragment per keyframe) on stdout, which the app keeps in RAM.
     /// </summary>
     /// <param name="gameWindow">With a Graphics Capture pipeline: record this window instead of the monitor.</param>
+    /// <summary>Separate tracks only make sense with both PC audio and microphone.</summary>
+    public static bool SeparateAudioTracks(AppSettings s) => s.SeparateAudioTracks && s.CaptureSystemAudio && s.CaptureMicrophone;
+
     public static List<string> BuildRecordArgs(PipelineSpec p, MonitorInfo mon, AppSettings s, double? audioStartUnix,
                                                nint gameWindow = 0)
     {
         bool audio = audioStartUnix.HasValue;
+        bool separate = audio && SeparateAudioTracks(s);
         // -nostdin only disables keyboard commands; the PCM stream on pipe:0 still works.
         // Info level + periodic stats show in the log how far ffmpeg got (inputs opened, output started, frames encoded).
         var a = new List<string> { "-hide_banner", "-nostdin", "-loglevel", "info", "-stats", "-stats_period", "5" };
@@ -475,19 +454,39 @@ public static class PipelineBuilder
             a.AddRange(new[]
             {
                 "-thread_queue_size", "4096",
-                "-f", "f32le", "-ar", AudioSampleRate.ToString(CultureInfo.InvariantCulture), "-ch_layout", "stereo",
+                "-f", "f32le", "-ar", AudioSampleRate.ToString(CultureInfo.InvariantCulture),
+                // Six channels with separate tracks (the layout name only gives the count; split by index below).
+                "-ch_layout", separate ? "5.1" : "stereo",
                 "-i", "pipe:0",
+            });
+        }
+        if (separate)
+        {
+            // Mix first, so players that play only one track still have everything; then PC audio and microphone.
+            a.AddRange(new[]
+            {
+                "-filter_complex",
+                "[1:a]asplit=3[m][g][c];[m]pan=stereo|c0=c0|c1=c1[mix];[g]pan=stereo|c0=c2|c1=c3[game];[c]pan=stereo|c0=c4|c1=c5[mic]",
             });
         }
 
         // VFR passthrough keeps the capture times (a CFR conversion would duplicate frames to fill every gap).
         // Pacing and the 1/fps time base: see VideoFilterChain.
         a.AddRange(new[] { "-copyts", "-fps_mode", "passthrough", "-enc_time_base:v", EncoderTimeBase(s.Fps), "-map", "0:v" });
-        if (audio) a.AddRange(new[] { "-map", "1:a" });
+        if (separate) a.AddRange(new[] { "-map", "[mix]", "-map", "[game]", "-map", "[mic]" });
+        else if (audio) a.AddRange(new[] { "-map", "1:a" });
         a.AddRange(new[] { "-vf", VideoFilterChain(p, s.Fps) });
         a.AddRange(p.EncoderArgs);
         a.AddRange(p.ColorArgs);
         if (audio) a.AddRange(new[] { "-c:a", "aac", "-b:a", $"{s.AudioBitrateKbps}k" });
+        if (separate)
+        {
+            a.AddRange(new[]
+            {
+                "-metadata:s:a:0", "title=Mix", "-metadata:s:a:1", "title=PC audio", "-metadata:s:a:2", "title=Microphone",
+                "-disposition:a:0", "default", "-disposition:a:1", "0", "-disposition:a:2", "0",
+            });
+        }
 
         a.AddRange(new[]
         {

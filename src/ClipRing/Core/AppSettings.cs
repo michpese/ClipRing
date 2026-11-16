@@ -44,7 +44,7 @@ public sealed class AppSettings : ObservableObject
     public QualityPreset Quality { get => _quality; set => Set(ref _quality, value); }
 
     private int _customBitrateKbps = 20000;
-    public int CustomBitrateKbps { get => _customBitrateKbps; set => Set(ref _customBitrateKbps, Math.Clamp(value, 1000, 200000)); }
+    public int CustomBitrateKbps { get => _customBitrateKbps; set => Set(ref _customBitrateKbps, Math.Clamp(value, 2000, 150000)); }
 
     private RateControlMode _rateControl = RateControlMode.Vbr;
     public RateControlMode RateControl { get => _rateControl; set => Set(ref _rateControl, value); }
@@ -71,7 +71,7 @@ public sealed class AppSettings : ObservableObject
     public Dictionary<string, MonitorModeProfile> MonitorModeProfiles { get; set; } = new();
 
     private int _bufferSeconds = 120;
-    public int BufferSeconds { get => _bufferSeconds; set => Set(ref _bufferSeconds, Math.Clamp(value, 10, 1200)); }
+    public int BufferSeconds { get => _bufferSeconds; set => Set(ref _bufferSeconds, Math.Clamp(value, 15, 600)); }
 
     private bool _onlyWhenGameRunning;
     public bool OnlyWhenGameRunning { get => _onlyWhenGameRunning; set => Set(ref _onlyWhenGameRunning, value); }
@@ -90,6 +90,13 @@ public sealed class AppSettings : ObservableObject
     private bool _captureMicrophone;
     public bool CaptureMicrophone { get => _captureMicrophone; set => Set(ref _captureMicrophone, value); }
 
+    private bool _separateAudioTracks;
+    /// <summary>
+    /// Three audio tracks instead of one: mix (played by default), PC audio, microphone. Only with both
+    /// sources on, see <see cref="ClipRing.Capture.PipelineBuilder.SeparateAudioTracks"/>.
+    /// </summary>
+    public bool SeparateAudioTracks { get => _separateAudioTracks; set => Set(ref _separateAudioTracks, value); }
+
     /// <summary>Empty string = Windows default recording device.</summary>
     private string _microphoneDeviceId = "";
     public string MicrophoneDeviceId { get => _microphoneDeviceId; set => Set(ref _microphoneDeviceId, value ?? ""); }
@@ -102,7 +109,7 @@ public sealed class AppSettings : ObservableObject
 
     private int _audioOffsetMs;
     /// <summary>Positive values delay the audio relative to the picture.</summary>
-    public int AudioOffsetMs { get => _audioOffsetMs; set => Set(ref _audioOffsetMs, Math.Clamp(value, -1000, 1000)); }
+    public int AudioOffsetMs { get => _audioOffsetMs; set => Set(ref _audioOffsetMs, Math.Clamp(value, -500, 500)); }
 
     // ---------------------------------------------------------------- Output
     private string _outputFolder = DefaultOutputFolder();
@@ -133,17 +140,17 @@ public sealed class AppSettings : ObservableObject
     public string HotkeySaveShort { get => _hotkeySaveShort; set => Set(ref _hotkeySaveShort, value ?? ""); }
 
     private int _shortClipSeconds = 30;
-    public int ShortClipSeconds { get => _shortClipSeconds; set => Set(ref _shortClipSeconds, Math.Clamp(value, 5, 600)); }
+    public int ShortClipSeconds { get => _shortClipSeconds; set => Set(ref _shortClipSeconds, Math.Clamp(value, 10, 120)); }
 
     private string _hotkeyToggle = "Ctrl+Alt+F11";
     public string HotkeyToggle { get => _hotkeyToggle; set => Set(ref _hotkeyToggle, value ?? ""); }
 
     // ---------------------------------------------------------------- Highlights
     private int _highlightPreRollSec = 8;
-    public int HighlightPreRollSec { get => _highlightPreRollSec; set => Set(ref _highlightPreRollSec, Math.Clamp(value, 2, 60)); }
+    public int HighlightPreRollSec { get => _highlightPreRollSec; set => Set(ref _highlightPreRollSec, Math.Clamp(value, 2, 30)); }
 
     private int _highlightPostRollSec = 4;
-    public int HighlightPostRollSec { get => _highlightPostRollSec; set => Set(ref _highlightPostRollSec, Math.Clamp(value, 1, 30)); }
+    public int HighlightPostRollSec { get => _highlightPostRollSec; set => Set(ref _highlightPostRollSec, Math.Clamp(value, 1, 15)); }
 
     private bool _cs2Enabled;
     public bool Cs2Enabled { get => _cs2Enabled; set => Set(ref _cs2Enabled, value); }
@@ -154,7 +161,7 @@ public sealed class AppSettings : ObservableObject
     private string _cs2Token = Guid.NewGuid().ToString("N");
     public string Cs2Token { get => _cs2Token; set => Set(ref _cs2Token, string.IsNullOrWhiteSpace(value) ? Guid.NewGuid().ToString("N") : value); }
 
-    private int _cs2MinKills = 1;
+    private int _cs2MinKills = 2;
     public int Cs2MinKills { get => _cs2MinKills; set => Set(ref _cs2MinKills, Math.Clamp(value, 1, 5)); }
 
     private Cs2ModeFilter _cs2Modes = Cs2ModeFilter.Competitive;
@@ -214,7 +221,7 @@ public sealed class AppSettings : ObservableObject
         nameof(CaptureMethod), nameof(Resolution), nameof(StretchToScreen), nameof(Fps), nameof(Codec), nameof(Encoder),
         nameof(Quality), nameof(CustomBitrateKbps), nameof(RateControl), nameof(Speed),
         nameof(KeyframeIntervalSec), nameof(CaptureCursor), nameof(AudioBitrateKbps),
-        nameof(AudioOffsetMs), nameof(FfmpegPath),
+        nameof(AudioOffsetMs), nameof(FfmpegPath), nameof(SeparateAudioTracks),
     };
 
     /// <summary>

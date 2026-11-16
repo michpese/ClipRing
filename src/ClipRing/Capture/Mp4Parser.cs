@@ -28,6 +28,9 @@ public static class Mp4Parser
     public static ulong U64(byte[] b, int o) => BinaryPrimitives.ReadUInt64BigEndian(b.AsSpan(o, 8));
     public static uint U24(byte[] b, int o) => (uint)(b[o] << 16 | b[o + 1] << 8 | b[o + 2]);
 
+    /// <summary>Are there <paramref name="bytes"/> bytes at <paramref name="pos"/> before <paramref name="end"/>?</summary>
+    private static bool Fits(int pos, int bytes, int end) => pos >= 0 && (long)pos + bytes <= end;
+
     /// <summary>Enumerates child boxes in [start, end): (type, payloadStart, boxEnd).</summary>
     public static IEnumerable<(string Type, int Payload, int End)> Children(byte[] buf, int start, int end)
     {
@@ -68,7 +71,7 @@ public static class Mp4Parser
                 if (box.Type != "mvex") continue;
                 foreach (var trex in Children(init, box.Payload, box.End))
                 {
-                    if (trex.Type != "trex") continue;
+                    if (trex.Type != "trex" || !Fits(trex.Payload, 24, trex.End)) continue;
                     // version/flags(4) track_ID(4) desc_index(4) duration(4) size(4) flags(4)
                     var track = info.Find(U32(init, trex.Payload + 4));
                     if (track is null) continue;
@@ -86,21 +89,21 @@ public static class Mp4Parser
         string handler = "";
         foreach (var box in Children(b, start, end))
         {
-            if (box.Type == "tkhd")
+            if (box.Type == "tkhd" && Fits(box.Payload, 1, box.End))
             {
-                int version = b[box.Payload];
-                trackId = U32(b, box.Payload + (version == 1 ? 20 : 12));
+                int offset = b[box.Payload] == 1 ? 20 : 12;
+                if (Fits(box.Payload + offset, 4, box.End)) trackId = U32(b, box.Payload + offset);
             }
             else if (box.Type == "mdia")
             {
                 foreach (var m in Children(b, box.Payload, box.End))
                 {
-                    if (m.Type == "mdhd")
+                    if (m.Type == "mdhd" && Fits(m.Payload, 1, m.End))
                     {
-                        int version = b[m.Payload];
-                        timescale = U32(b, m.Payload + (version == 1 ? 20 : 12));
+                        int offset = b[m.Payload] == 1 ? 20 : 12;
+                        if (Fits(m.Payload + offset, 4, m.End)) timescale = U32(b, m.Payload + offset);
                     }
-                    else if (m.Type == "hdlr")
+                    else if (m.Type == "hdlr" && Fits(m.Payload, 12, m.End))
                     {
                         handler = Encoding.ASCII.GetString(b, m.Payload + 8, 4);
                     }
@@ -132,22 +135,32 @@ public static class Mp4Parser
             {
                 switch (box.Type)
                 {
-                    case "tfhd":
+                    case "tfhd" when Fits(box.Payload, 8, box.End):
                     {
                         uint flags = U24(moof, box.Payload + 1);
                         trackId = U32(moof, box.Payload + 4);
                         int pos = box.Payload + 8;
                         if ((flags & 0x01) != 0) pos += 8;       // base_data_offset
                         if ((flags & 0x02) != 0) pos += 4;       // sample_description_index
-                        if ((flags & 0x08) != 0) { defaultDuration = U32(moof, pos); hasDefaultDuration = true; pos += 4; }
+                        if ((flags & 0x08) != 0 && Fits(pos, 4, box.End))
+                        {
+                            defaultDuration = U32(moof, pos);
+                            hasDefaultDuration = true;
+                        }
+                        if ((flags & 0x08) != 0) pos += 4;
                         if ((flags & 0x10) != 0) pos += 4;       // default_sample_size
-                        if ((flags & 0x20) != 0) { defaultFlags = U32(moof, pos); hasDefaultFlags = true; }
+                        if ((flags & 0x20) != 0 && Fits(pos, 4, box.End))
+                        {
+                            defaultFlags = U32(moof, pos);
+                            hasDefaultFlags = true;
+                        }
                         break;
                     }
-                    case "tfdt":
+                    case "tfdt" when Fits(box.Payload, 1, box.End):
                     {
-                        int version = moof[box.Payload];
-                        baseTime = version == 1 ? U64(moof, box.Payload + 4) : U32(moof, box.Payload + 4);
+                        bool v1 = moof[box.Payload] == 1;
+                        if (!Fits(box.Payload + 4, v1 ? 8 : 4, box.End)) break;
+                        baseTime = v1 ? U64(moof, box.Payload + 4) : U32(moof, box.Payload + 4);
                         hasBaseTime = true;
                         break;
                     }
@@ -159,15 +172,29 @@ public static class Mp4Parser
 
             foreach (var box in Children(moof, traf.Payload, traf.End))
             {
-                if (box.Type != "trun") continue;
+                if (box.Type != "trun" || !Fits(box.Payload, 8, box.End)) continue;
                 uint flags = U24(moof, box.Payload + 1);
                 uint count = U32(moof, box.Payload + 4);
                 int pos = box.Payload + 8;
                 if ((flags & 0x001) != 0) pos += 4;   // data_offset
                 uint? trunFirstFlags = null;
-                if ((flags & 0x004) != 0) { trunFirstFlags = U32(moof, pos); pos += 4; }
+                if ((flags & 0x004) != 0)
+                {
+                    if (!Fits(pos, 4, box.End)) continue;
+                    trunFirstFlags = U32(moof, pos);
+                    pos += 4;
+                }
 
-                for (uint i = 0; i < count && pos <= box.End; i++)
+                // Bytes per sample entry: one 32-bit field for each of duration, size, flags, cts offset.
+                int stride = 4 * System.Numerics.BitOperations.PopCount(flags & 0xF00);
+                if (stride == 0)
+                {
+                    // All samples use the defaults: no need to walk them.
+                    if (count > 0) firstSampleFlags ??= trunFirstFlags ?? defaultFlags;
+                    totalDuration += (ulong)count * defaultDuration;
+                    continue;
+                }
+                for (uint i = 0; i < count && Fits(pos, stride, box.End); i++)
                 {
                     uint duration = defaultDuration;
                     uint sampleFlags = defaultFlags;

@@ -79,6 +79,9 @@ public sealed class TrayIcon : IDisposable
     public void Dispose()
     {
         _icon.Visible = false;
+        var icon = _icon.Icon;
         _icon.Dispose();
+        // ExtractAssociatedIcon creates an icon handle of its own; the shared system icon must stay.
+        if (icon is not null && !ReferenceEquals(icon, SystemIcons.Application)) icon.Dispose();
     }
 }

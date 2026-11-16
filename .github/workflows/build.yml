@@ -59,18 +59,15 @@ jobs:
             "::error title=Build-Log (Ende)::$tail"
           }
 
+      - name: Unit-Tests
+        shell: pwsh
+        timeout-minutes: 10
+        run: ./.github/scripts/unit-tests.ps1
+
       - name: Oberfläche prüfen (Deutsch und Englisch, alle Seiten)
         shell: pwsh
         timeout-minutes: 5
-        run: |
-          $report = Join-Path $env:RUNNER_TEMP 'selftest-ui.txt'
-          $p = Start-Process dist/ClipRing/ClipRing.exe -ArgumentList '--selftest-ui', "`"$report`"" -Wait -PassThru
-          $text = if (Test-Path $report) { Get-Content $report -Raw } else { '(kein Bericht)' }
-          Write-Host $text
-          $summary = (($text -split "`r?`n") | Where-Object { $_ }) -join ' | '
-          if ($summary.Length -gt 3500) { $summary = $summary.Substring(0, 3500) + ' …' }
-          if ($p.ExitCode -eq 0) { "::notice title=Oberfläche::$summary" }
-          else { "::error title=Oberfläche::Exit $($p.ExitCode): $summary"; exit 1 }
+        run: ./.github/scripts/selftest.ps1 -Mode ui
 
       - name: FFmpeg-Quellangaben anzeigen
         shell: pwsh
@@ -82,14 +79,7 @@ jobs:
       - name: Eingebautes FFmpeg prüfen (entpacken, Prüfsumme, Start)
         shell: pwsh
         timeout-minutes: 5
-        run: |
-          $report = Join-Path $env:RUNNER_TEMP 'selftest.txt'
-          $p = Start-Process dist/ClipRing/ClipRing.exe -ArgumentList '--selftest-ffmpeg', "`"$report`"" -Wait -PassThru
-          $text = if (Test-Path $report) { Get-Content $report -Raw } else { '(kein Bericht)' }
-          Write-Host $text
-          $summary = (($text -split "`r?`n") | Where-Object { $_ }) -join ', '
-          if ($p.ExitCode -eq 0) { "::notice title=Eingebautes FFmpeg::$summary" }
-          else { "::error title=Eingebautes FFmpeg::Exit $($p.ExitCode): $summary"; exit 1 }
+        run: ./.github/scripts/selftest.ps1 -Mode ffmpeg
 
       - name: Ergebnis hochladen
         uses: actions/upload-artifact@v6
@@ -132,6 +122,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./build.ps1 -SelfContained
+
+      # The release is built again (with .NET included): test exactly what gets published.
+      - name: Oberfläche des Release-Builds prüfen
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./.github/scripts/selftest.ps1 -Mode ui
+
+      - name: Eingebautes FFmpeg des Release-Builds prüfen
+        shell: pwsh
+        timeout-minutes: 5
+        run: ./.github/scripts/selftest.ps1 -Mode ffmpeg
 
       - name: Zip packen
         shell: pwsh

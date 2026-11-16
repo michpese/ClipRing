@@ -116,12 +116,30 @@ else {
         }
         catch { Write-Warning "Commit des FFmpeg-Builds nicht ermittelbar: $_" }
 
-        $temp = Join-Path ([IO.Path]::GetTempPath()) ("cliprings-ffmpeg-" + [guid]::NewGuid())
+        $temp = Join-Path ([IO.Path]::GetTempPath()) ("clipring-ffmpeg-" + [guid]::NewGuid())
         New-Item -ItemType Directory -Path $temp | Out-Null
         try {
             $zip = Join-Path $temp $asset.name
             Write-Host "Lade $($asset.name) ($([math]::Round($asset.size / 1MB)) MB) …"
             Retry 'FFmpeg-Download' { Invoke-WebRequest $asset.browser_download_url -OutFile $zip }
+
+            # BtbN publishes SHA-256 sums for every file of a release: a broken or tampered download stops here.
+            $sums = $release.assets | Where-Object { $_.name -eq 'checksums.sha256' } | Select-Object -First 1
+            if ($sums) {
+                $sumText = Retry 'Prüfsummen laden' { (Invoke-WebRequest $sums.browser_download_url -UseBasicParsing).Content }
+                if ($sumText -is [byte[]]) { $sumText = [Text.Encoding]::UTF8.GetString($sumText) }
+                $line = ($sumText -split "`r?`n") | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($asset.name))\s*$" } |
+                    Select-Object -First 1
+                if (-not $line) { throw "Keine Prüfsumme für $($asset.name) in checksums.sha256" }
+                $expected = ([regex]::Match($line, '[0-9a-fA-F]{64}')).Value.ToLowerInvariant()
+                $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+                if ($actual -ne $expected) { throw "Prüfsumme von $($asset.name) stimmt nicht: $actual statt $expected" }
+                Write-Host "Prüfsumme stimmt ($expected)"
+            }
+            else {
+                Write-Warning 'BtbN-Release ohne checksums.sha256: Download nicht geprüft.'
+            }
+
             Expand-Archive $zip -DestinationPath $temp
             $bin = Get-ChildItem $temp -Recurse -Filter 'ffmpeg.exe' | Select-Object -First 1
             if (-not $bin) { throw 'ffmpeg.exe nicht im Archiv gefunden.' }

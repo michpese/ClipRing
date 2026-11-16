@@ -8,8 +8,9 @@ namespace ClipRing.Capture;
 
 /// <param name="EndAtTimestamp">Cut the clip at <paramref name="Timestamp"/> (highlights); otherwise it runs to the newest frame.</param>
 /// <param name="ClearBuffer">After saving, drop what the clip contains so the buffer starts over.</param>
+/// <param name="KeepFromUtc">When clearing: keep everything from this moment on (a highlight round still being collected).</param>
 public sealed record ClipRequest(double Seconds, string Game, DateTime Timestamp, string? Tag, string Reason,
-                                 bool EndAtTimestamp = false, bool ClearBuffer = false);
+                                 bool EndAtTimestamp = false, bool ClearBuffer = false, DateTime? KeepFromUtc = null);
 
 public sealed record SavedClip(string FilePath, string Game, double DurationSeconds, long SizeBytes, string? Tag, DateTime SavedAt)
 {
@@ -40,7 +41,7 @@ public sealed class ClipSaver
         // The newest moments are still inside the encoder (lookahead, open GOP): wait until the
         // buffer reaches the moment the hotkey was pressed.
         var anchor = buffer.WallToStream(request.Timestamp.ToUniversalTime());
-        await WaitForStreamTimeAsync(buffer, anchor, TimeSpan.FromSeconds(settings.KeyframeIntervalSec * 2 + 2), ct);
+        await WaitForStreamTimeAsync(buffer, anchor, settings.KeyframeIntervalSec, ct);
 
         using var snapshot = buffer.Snapshot(request.Seconds, anchor, trimEnd: request.EndAtTimestamp)
             ?? throw new InvalidOperationException(Localization.Loc.T("Err_BufferEmpty"));
@@ -76,11 +77,7 @@ public sealed class ClipSaver
             }
             var size = new FileInfo(target).Length;
             Log.Info($"Clip gespeichert ({request.Reason}): {target} ({snapshot.Duration:F1}s, {size / 1048576.0:F1} MB)");
-            if (request.ClearBuffer)
-            {
-                buffer.DiscardThrough(snapshot.End);
-                Log.Info("Puffer beginnt nach dem Speichern neu");
-            }
+            if (request.ClearBuffer) ClearSaved(buffer, snapshot, request);
             return new SavedClip(target, request.Game, snapshot.Duration, size, request.Tag, DateTime.Now);
         }
         finally
@@ -129,13 +126,52 @@ public sealed class ClipSaver
         try { if (File.Exists(path)) File.Delete(path); } catch { /* still locked: try again later */ }
     }
 
-    private static async Task WaitForStreamTimeAsync(ReplayBuffer buffer, double? anchor, TimeSpan timeout, CancellationToken ct)
+    /// <summary>Drops what the clip contains, except what a highlight round still being collected needs.</summary>
+    private static void ClearSaved(ReplayBuffer buffer, ClipSnapshot snapshot, ClipRequest request)
     {
+        double cut = snapshot.End;
+        if (request.KeepFromUtc is DateTime keep)
+        {
+            if (buffer.WallToStream(keep) is not double keepFrom) return;
+            if (keepFrom < cut)
+            {
+                cut = keepFrom;
+                Log.Info("Puffer behält den Anfang der laufenden Highlight-Runde");
+            }
+        }
+        buffer.DiscardThrough(cut);
+        Log.Info("Puffer beginnt nach dem Speichern neu");
+    }
+
+    /// <summary>
+    /// Waits until the buffer reaches the moment of the hotkey press. A fragment ends at the next keyframe, so
+    /// while the picture moves one arrives at least every keyframe interval. If none comes for longer, the
+    /// picture stands still (menu, scoreboard): Graphics Capture delivers no frames, the stream won't reach that
+    /// moment, and waiting the full timeout would only delay the clip.
+    /// </summary>
+    private static async Task WaitForStreamTimeAsync(ReplayBuffer buffer, double? anchor, double keyframeIntervalSec,
+                                                     CancellationToken ct)
+    {
+        var timeout = TimeSpan.FromSeconds(keyframeIntervalSec * 2 + 2);
+        var stall = TimeSpan.FromSeconds(keyframeIntervalSec + 0.5);
         long startVersion = buffer.Version;
+        long version = startVersion;
         var sw = Stopwatch.StartNew();
+        var lastChange = TimeSpan.Zero;
         while (sw.Elapsed < timeout)
         {
             if (anchor is double a ? buffer.StreamEnd >= a : buffer.Version != startVersion) return;
+            long current = buffer.Version;
+            if (current != version)
+            {
+                version = current;
+                lastChange = sw.Elapsed;
+            }
+            else if (sw.Elapsed - lastChange > stall)
+            {
+                Log.Info("Bild steht still, Clip wird ohne weiteres Warten gespeichert");
+                return;
+            }
             await Task.Delay(40, ct).ConfigureAwait(false);
         }
     }
@@ -214,15 +250,27 @@ public sealed class ClipSaver
         return name.Trim('_', ' ', '-');
     }
 
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+
     public static string SanitizeName(string? value, string fallback)
     {
         if (string.IsNullOrWhiteSpace(value)) return fallback;
         var invalid = Path.GetInvalidFileNameChars();
         var sb = new StringBuilder(value.Length);
         foreach (var ch in value) sb.Append(invalid.Contains(ch) ? '_' : ch);
-        var result = sb.ToString().Trim().TrimEnd('.');
-        if (result.Length > 80) result = result[..80].Trim();
-        return result.Length == 0 ? fallback : result;
+        var result = sb.ToString().Trim();
+        if (result.Length > 80) result = result[..80];
+        // Windows drops trailing dots and spaces, so a name ending in them can't be created as given.
+        result = result.Trim().TrimEnd('.', ' ');
+        if (result.Length == 0) return fallback;
+        // Device names are reserved, also with an extension ("CON.mp4").
+        if (ReservedNames.Contains(result.Split('.')[0].TrimEnd())) result = "_" + result;
+        return result;
     }
 
     private static string UniquePath(string path)
