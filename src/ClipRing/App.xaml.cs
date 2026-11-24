@@ -45,7 +45,7 @@ public partial class App : Application
             System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level = System.Diagnostics.SourceLevels.Error;
 
             var settings = new AppSettings();
-            var service = new ReplayService(settings, Dispatcher);
+            using var service = new ReplayService(settings, Dispatcher);
             var viewModel = new MainViewModel(service);
             var window = new MainWindow
             {
@@ -87,6 +87,10 @@ public partial class App : Application
         catch (Exception ex)
         {
             lines.Add("error=" + ex.ToString().ReplaceLineEndings(" | "));
+        }
+        finally
+        {
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Listeners.Remove(listener);
         }
         lines.Add($"result={(code == 0 ? "ok" : "failed")}");
         try { File.WriteAllLines(reportPath, lines); } catch { /* exit code still tells */ }

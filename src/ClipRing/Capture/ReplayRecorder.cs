@@ -30,8 +30,10 @@ public sealed class ReplayRecorder : IDisposable
     private long _stdoutBytes;
     private readonly List<string> _boxTrail = new();
     private int _droppedFragments;
-    private string _lastStats = "";
+    private volatile string _lastStats = "";
     private int _statsLines;
+    private volatile bool _hasProducedData;
+    private double _recentFps = double.NaN;
 
     public ReplayRecorder(ReplayBuffer buffer) => _buffer = buffer;
 
@@ -42,10 +44,17 @@ public sealed class ReplayRecorder : IDisposable
     public event Action<string>? Faulted;
 
     public DateTime StartedUtc { get; private set; }
-    public bool HasProducedData { get; private set; }
+    public bool HasProducedData => _hasProducedData;
 
     /// <summary>Frames per second over the last ffmpeg status period (null until two status lines arrived).</summary>
-    public double? RecentFps { get; private set; }
+    public double? RecentFps
+    {
+        get
+        {
+            double v = Volatile.Read(ref _recentFps);
+            return double.IsNaN(v) ? null : v;
+        }
+    }
 
     private long _lastStatsFrames = -1;
     private double _lastStatsElapsed;
@@ -141,7 +150,7 @@ public sealed class ReplayRecorder : IDisposable
                          + double.Parse(elapsed.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture);
 
         if (_lastStatsFrames >= 0 && seconds > _lastStatsElapsed + 0.5)
-            RecentFps = (frames - _lastStatsFrames) / (seconds - _lastStatsElapsed);
+            Volatile.Write(ref _recentFps, (frames - _lastStatsFrames) / (seconds - _lastStatsElapsed));
         _lastStatsFrames = frames;
         _lastStatsElapsed = seconds;
     }
@@ -153,9 +162,11 @@ public sealed class ReplayRecorder : IDisposable
         lock (_boxTrail) boxes = _boxTrail.Count == 0 ? "keine" : string.Join(" ", _boxTrail);
         bool exited = false;
         try { exited = _process?.HasExited ?? true; } catch { }
+        int dropped = Volatile.Read(ref _droppedFragments);
+        string stats = _lastStats;
         var text = $"FFmpeg {(exited ? "beendet" : "läuft")}; Ausgabe: {Interlocked.Read(ref _stdoutBytes)} Bytes, MP4-Boxen: {boxes}";
-        if (_droppedFragments > 0) text += $", {_droppedFragments} Fragmente nicht lesbar";
-        text += $"; letzter Status: {(_lastStats.Length == 0 ? "keiner" : _lastStats)}";
+        if (dropped > 0) text += $", {dropped} Fragmente nicht lesbar";
+        text += $"; letzter Status: {(stats.Length == 0 ? "keiner" : stats)}";
         if (_audio is not null) text += "; " + _audio.PipeDiagnostics();
         return text;
     }
@@ -279,16 +290,16 @@ public sealed class ReplayRecorder : IDisposable
 
                         if (timing is null)
                         {
-                            if (++_droppedFragments <= 3)
+                            if (Interlocked.Increment(ref _droppedFragments) <= 3)
                                 Log.Warn($"MP4-Fragment ohne lesbare Videozeit verworfen ({data.Length} Bytes)");
                             data.Dispose();
                             break;
                         }
                         _buffer.Add(new BufferedFragment(data, timing.Value));
 
-                        if (!HasProducedData)
+                        if (!_hasProducedData)
                         {
-                            HasProducedData = true;
+                            _hasProducedData = true;
                             Log.Info("Erstes Fragment empfangen, Replay-Puffer läuft");
                             Running?.Invoke();
                         }

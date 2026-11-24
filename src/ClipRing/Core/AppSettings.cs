@@ -221,7 +221,7 @@ public sealed class AppSettings : ObservableObject
         nameof(CaptureMethod), nameof(Resolution), nameof(StretchToScreen), nameof(Fps), nameof(Codec), nameof(Encoder),
         nameof(Quality), nameof(CustomBitrateKbps), nameof(RateControl), nameof(Speed),
         nameof(KeyframeIntervalSec), nameof(CaptureCursor), nameof(AudioBitrateKbps),
-        nameof(AudioOffsetMs), nameof(FfmpegPath), nameof(SeparateAudioTracks),
+        nameof(AudioOffsetMs), nameof(FfmpegPath),
     };
 
     /// <summary>

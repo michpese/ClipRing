@@ -29,7 +29,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private readonly GameDetector _games;
     private readonly HighlightManager _highlights;
     private readonly SemaphoreSlim _life = new(1, 1);
+    private readonly CancellationTokenSource _disposeCts = new();
     private readonly object _timerGate = new();
+    private readonly object _modeProfileGate = new();
     private readonly Timer _statsTimer;
     private Timer? _restartTimer;
     private Timer? _saveTimer;
@@ -44,7 +46,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private int _statsTick;
     private int _statsBusy;
     private DateTime _gameGoneSinceUtc = DateTime.MinValue;
-    private bool _disposed;
+    private volatile bool _disposed;
 
     // Watchdog: ffmpeg running but no data. After repeated failures with audio, record without it.
     private static readonly TimeSpan NoDataTimeout = TimeSpan.FromSeconds(20);
@@ -80,8 +82,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         foreach (var name in new[]
                  {
                      nameof(StateTitle), nameof(StatusText), nameof(FfmpegText), nameof(EncoderText), nameof(OutputText),
-                     nameof(GameText), nameof(Cs2StatusText), nameof(EstimatedRamText), nameof(BufferBytesText),
-                     nameof(CapabilitiesText),
+                     nameof(GameText), nameof(Cs2StatusText), nameof(EstimatedBitrateText), nameof(EstimatedRamText),
+                     nameof(BufferBytesText), nameof(CapabilitiesText),
                  })
             OnPropertyChanged(name);
     }
@@ -240,7 +242,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
     }
 
-    public string EstimatedBitrateText => $"{EstimatedBitrateKbps / 1000.0:0.#} Mbit/s";
+    public string EstimatedBitrateText
+        => string.Format(Loc.Instance.Culture, "{0:0.#} Mbit/s", EstimatedBitrateKbps / 1000.0);
 
     public string EstimatedOutputText
     {
@@ -296,7 +299,25 @@ public sealed class ReplayService : ObservableObject, IDisposable
         _ = Task.Run(LoadRecentClips);
         _statsTimer.Change(TimeSpan.FromMilliseconds(500), TimeSpan.FromMilliseconds(250));
 
-        if (await DetectEnvironmentAsync())
+        bool detected;
+        try
+        {
+            await _life.WaitAsync(_disposeCts.Token);
+            try
+            {
+                if (_disposed) return;
+                detected = await DetectEnvironmentAsync(forceEncoderCheck: false, _disposeCts.Token);
+            }
+            finally
+            {
+                _life.Release();
+            }
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            return;
+        }
+        if (detected && !_disposed)
         {
             ApplyHighlights();
             await RestartAsync("Start");
@@ -304,11 +325,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
     }
 
     /// <summary>Finds ffmpeg and probes monitors. Returns false (and sets an error) if capture is impossible.</summary>
-    private async Task<bool> DetectEnvironmentAsync(bool forceEncoderCheck = false)
+    private async Task<bool> DetectEnvironmentAsync(bool forceEncoderCheck = false, CancellationToken ct = default)
     {
         State = ReplayState.Initializing;
         SetStatus(() => Loc.T(EmbeddedFfmpeg.IsAvailable ? "Status_Preparing" : "Status_SearchingFfmpeg"));
-        Ffmpeg = await FfmpegLocator.DetectAsync(Settings.FfmpegPath);
+        Ffmpeg = await FfmpegLocator.DetectAsync(Settings.FfmpegPath, ct);
         if (Ffmpeg is null)
         {
             SetError(() => Loc.T(EmbeddedFfmpeg.IsAvailable ? "Err_EmbeddedFfmpeg" : "Err_NoFfmpeg"));
@@ -322,11 +343,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
 
         SetStatus(() => Loc.T("Status_CheckingEncoders"));
-        Capabilities = await EncoderProbe.GetAsync(ffmpeg, forceEncoderCheck);
+        Capabilities = await EncoderProbe.GetAsync(ffmpeg, forceEncoderCheck, ct);
         AdjustToCapabilities();
 
         SetStatus(() => Loc.T("Status_DetectingMonitors"));
-        await RefreshMonitorsAsync();
+        await RefreshMonitorsAsync(ct);
         if (Monitors.Count == 0)
         {
             SetError(() => Loc.T("Err_NoMonitor"));
@@ -379,6 +400,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
         _ = Task.Run(async () =>
         {
             try { await OnMonitorModeChangedAsync(probed); }
+            catch (OperationCanceledException) when (_disposed) { }
             catch (Exception ex) { Log.Error("Monitormodus-Wechsel nicht verarbeitet", ex); }
             finally { Volatile.Write(ref _modeChangeBusy, 0); }
         });
@@ -386,9 +408,9 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     private async Task OnMonitorModeChangedAsync(MonitorInfo before)
     {
-        await RefreshMonitorsAsync();
+        if (!await RefreshMonitorsAsync(_disposeCts.Token) || _disposed) return;
         var after = SelectedMonitor;
-        if (after is null) return;
+        if (after is null || (after.DeviceName == before.DeviceName && ModeKey(after) == ModeKey(before))) return;
         Log.Info($"Monitormodus gewechselt: {before.Width}x{before.Height} {before.RefreshHz} Hz → " +
                  $"{after.Width}x{after.Height} {after.RefreshHz} Hz ({after.DeviceName})");
         bool settingsChanged = ApplyMonitorModeProfile(after);
@@ -422,10 +444,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         if (!Settings.RememberPerMonitorMode) return false;
         var (fpsBefore, resolutionBefore) = (Settings.Fps, Settings.Resolution);
+        MonitorModeProfile? profile;
+        lock (_modeProfileGate)
+            Settings.MonitorModeProfiles.TryGetValue(ModeKey(monitor), out profile);
+
         _applyingModeProfile = true;
         try
         {
-            if (Settings.MonitorModeProfiles.TryGetValue(ModeKey(monitor), out var profile))
+            if (profile is not null)
             {
                 if (profile.Fps != Settings.Fps || profile.Resolution != Settings.Resolution)
                     Log.Info($"Einstellungen für {ModeKey(monitor)} übernommen: {profile.Fps} fps, {profile.Resolution}");
@@ -449,7 +475,15 @@ public sealed class ReplayService : ObservableObject, IDisposable
     private void RememberMonitorModeProfile()
     {
         if (!Settings.RememberPerMonitorMode || SelectedMonitor is not { } monitor) return;
-        Settings.MonitorModeProfiles[ModeKey(monitor)] = new MonitorModeProfile { Fps = Settings.Fps, Resolution = Settings.Resolution };
+        lock (_modeProfileGate)
+        {
+            // Copy-on-write so JSON serialization in SettingsStore.Save never sees a mutated dictionary.
+            var updated = new Dictionary<string, MonitorModeProfile>(Settings.MonitorModeProfiles)
+            {
+                [ModeKey(monitor)] = new MonitorModeProfile { Fps = Settings.Fps, Resolution = Settings.Resolution },
+            };
+            Settings.MonitorModeProfiles = updated;
+        }
         ScheduleSettingsSave();
     }
 
@@ -489,19 +523,25 @@ public sealed class ReplayService : ObservableObject, IDisposable
         }
     }
 
-    private async Task RefreshMonitorsAsync()
+    private async Task<bool> RefreshMonitorsAsync(CancellationToken ct = default)
     {
-        if (Ffmpeg is null) return;
+        if (Ffmpeg is null) return false;
         try
         {
-            var monitors = await DisplayProbe.ProbeAsync(Ffmpeg);
-            if (monitors.Count == 0) return;
+            var monitors = await DisplayProbe.ProbeAsync(Ffmpeg, ct);
+            if (monitors.Count == 0) return false;
             Monitors = monitors;
             SyncMonitorSelection();
+            return true;
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            return false;
         }
         catch (Exception ex)
         {
             Log.Warn("Monitorerkennung fehlgeschlagen: " + ex.Message);
+            return false;
         }
     }
 
@@ -534,19 +574,27 @@ public sealed class ReplayService : ObservableObject, IDisposable
         // The detection runs under the lifecycle lock, so no restart (timer, settings change, a second click)
         // can start a recording with half-detected monitors or encoders.
         bool detected;
-        await _life.WaitAsync();
         try
         {
-            StopRecorder();
-            PipelineSelector.InvalidateCache(Settings);
-            ResetAudioFallback();
-            detected = await DetectEnvironmentAsync(forceEncoderCheck: true);
+            await _life.WaitAsync(_disposeCts.Token);
+            try
+            {
+                if (_disposed) return;
+                StopRecorder();
+                PipelineSelector.InvalidateCache(Settings);
+                ResetAudioFallback();
+                detected = await DetectEnvironmentAsync(forceEncoderCheck: true, _disposeCts.Token);
+            }
+            finally
+            {
+                _life.Release();
+            }
         }
-        finally
+        catch (OperationCanceledException) when (_disposed)
         {
-            _life.Release();
+            return;
         }
-        if (detected)
+        if (detected && !_disposed)
         {
             ApplyHighlights();
             await RestartAsync("Neu erkennen");
@@ -608,7 +656,14 @@ public sealed class ReplayService : ObservableObject, IDisposable
 
     public async Task RestartAsync(string reason)
     {
-        await _life.WaitAsync();
+        try
+        {
+            await _life.WaitAsync(_disposeCts.Token);
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            return;
+        }
         try
         {
             if (_disposed) return;
@@ -642,7 +697,8 @@ public sealed class ReplayService : ObservableObject, IDisposable
             State = ReplayState.Starting;
             SetStatus(() => Loc.T("Status_SelectingEncoder"));
             var pipeline = await PipelineSelector.SelectAsync(Ffmpeg, Settings, monitor, Capabilities,
-                                                              msg => SetStatus(() => msg), CancellationToken.None);
+                                                              msg => SetStatus(() => msg), _disposeCts.Token);
+            if (_disposed) return;
             if (pipeline is null)
             {
                 SetError(() => Loc.T("Err_NoEncoder"));
@@ -657,6 +713,11 @@ public sealed class ReplayService : ObservableObject, IDisposable
             {
                 SetRecordingAudio(true);
                 audioStart = _audio.BeginStream(PipelineBuilder.SeparateAudioTracks(Settings)) + Settings.AudioOffsetMs / 1000.0;
+            }
+            if (_disposed)
+            {
+                SetRecordingAudio(false);
+                return;
             }
 
             nint window = 0;
@@ -705,6 +766,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
             OnPropertyChanged(nameof(OutputText));
             SetStatus(() => Loc.T("Status_RecordingStarts"));
             LastError = null;
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            if (_recorder is null) SetRecordingAudio(false);
         }
         catch (Exception ex)
         {
@@ -830,9 +895,13 @@ public sealed class ReplayService : ObservableObject, IDisposable
             {
                 try
                 {
+                    if (_disposed) return;
                     // Resolution changes (fullscreen games switching modes) end the capture: re-measure.
-                    if (reprobe) await RefreshMonitorsAsync();
-                    await RestartAsync(reason);
+                    if (reprobe) await RefreshMonitorsAsync(_disposeCts.Token);
+                    if (!_disposed) await RestartAsync(reason);
+                }
+                catch (OperationCanceledException) when (_disposed)
+                {
                 }
                 catch (Exception ex)
                 {
@@ -990,6 +1059,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 var picked = _monitors.FirstOrDefault(m => m.Index == Settings.MonitorIndex);
                 if (picked is null || picked.DeviceName == Settings.MonitorDevice) break;
                 Settings.MonitorDevice = picked.DeviceName;
+                ApplyMonitorModeProfile(picked);
                 NotifyEstimates();
                 ScheduleRestart(name, RestartDebounce, reprobe: false);
                 break;
@@ -997,6 +1067,10 @@ public sealed class ReplayService : ObservableObject, IDisposable
             case nameof(AppSettings.BufferSeconds):
                 _buffer.TargetSeconds = Settings.BufferSeconds;
                 NotifyEstimates();
+                OnPropertyChanged(nameof(StatusText));
+                break;
+            case nameof(AppSettings.HotkeySave):
+                OnPropertyChanged(nameof(StatusText));
                 break;
             case nameof(AppSettings.SystemVolume):
             case nameof(AppSettings.MicrophoneVolume):
@@ -1016,11 +1090,13 @@ public sealed class ReplayService : ObservableObject, IDisposable
                 if (_recorder is not null && (wantsAudio != _pipelineHasAudio || separate != _pipelineSeparateAudio || wasFallback))
                     ScheduleRestart(name, RestartDebounce, reprobe: false);
                 break;
+            case nameof(AppSettings.SeparateAudioTracks):
+                NotifyEstimates();
+                if (_recorder is not null && PipelineBuilder.SeparateAudioTracks(Settings) != _pipelineSeparateAudio)
+                    ScheduleRestart(name, RestartDebounce, reprobe: false);
+                break;
             case nameof(AppSettings.OnlyWhenGameRunning):
                 ScheduleRestart(name, TimeSpan.FromMilliseconds(300), reprobe: false);
-                break;
-            case nameof(AppSettings.RateControl):
-                NotifyEstimates();
                 break;
             case nameof(AppSettings.StartWithWindows):
             case nameof(AppSettings.StartMinimized):
@@ -1154,7 +1230,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
             MicPeak = _audio.MicPeak;
             ForegroundText = _games.ForegroundDescription;
 
-            if (++_statsTick % 8 != 0) return; // the rest every 2 s
+            if (Interlocked.Increment(ref _statsTick) % 8 != 0) return; // the rest every 2 s
 
             CheckRecorderWatchdog();
             CheckMonitorMode();
@@ -1197,6 +1273,7 @@ public sealed class ReplayService : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        try { _disposeCts.Cancel(); } catch (ObjectDisposedException) { }
         Settings.PropertyChanged -= OnSettingsChanged;
         Loc.LanguageChanged -= OnLanguageChanged;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;

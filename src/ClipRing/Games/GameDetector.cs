@@ -168,6 +168,7 @@ public sealed partial class GameDetector : IDisposable
             if (Current is { } gone && !IsRunning(gone))
             {
                 Current = null;
+                ForegroundDescription = "";
                 Log.Info($"Spiel beendet: {gone.DisplayName}");
                 CurrentChanged?.Invoke(null);
             }

@@ -113,7 +113,7 @@ public sealed partial class GameLibrary
                     var name = dn.GetString();
                     var location = il.GetString();
                     if (!string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(location))
-                        dirs[location.TrimEnd('\\', '/')] = name;
+                        dirs[location.Replace('/', '\\').TrimEnd('\\')] = name;
                 }
             }
             catch { /* ignore */ }
@@ -130,7 +130,7 @@ public sealed partial class GameLibrary
                     using var key = gog.OpenSubKey(sub);
                     if (key?.GetValue("gameName") is string name && key.GetValue("path") is string path &&
                         !string.IsNullOrWhiteSpace(path))
-                        dirs[path.TrimEnd('\\', '/')] = name;
+                        dirs[path.Replace('/', '\\').TrimEnd('\\')] = name;
                 }
             }
         }

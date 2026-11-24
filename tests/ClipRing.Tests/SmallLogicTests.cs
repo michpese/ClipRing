@@ -32,6 +32,27 @@ public class FileNameTests
         var name = ClipSaver.BuildFileName("{game}_{date}_{time}", "Counter-Strike 2", new DateTime(2026, 11, 1, 18, 5, 9), "3K");
         Assert.Equal("Counter-Strike 2_2026-11-01_18-05-09_3K", name);
     }
+
+    [Theory]
+    [InlineData("CON", "_CON")]
+    [InlineData("_CON_", "_CON")]
+    [InlineData("NUL.txt", "_NUL.txt")]
+    [InlineData("_{tag}_", "Clip")]
+    [InlineData("___", "Clip")]
+    [InlineData("---", "Clip")]
+    [InlineData("clip._", "clip")]
+    public void BuildFileNameKeepsWindowsSafetyGuarantees(string template, string expected)
+    {
+        var name = ClipSaver.BuildFileName(template, "Counter-Strike 2", new DateTime(2026, 11, 1, 18, 5, 9), tag: null);
+        Assert.Equal(expected, name);
+    }
+
+    [Fact]
+    public void BuildFileNameCollapsesEmptyTagPlaceholder()
+    {
+        var name = ClipSaver.BuildFileName("{game}_{tag}_{date}", "CS2", new DateTime(2026, 11, 1, 18, 5, 9), tag: null);
+        Assert.Equal("CS2_2026-11-01", name);
+    }
 }
 
 public class HotkeyTests
