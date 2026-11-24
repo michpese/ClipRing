@@ -59,7 +59,7 @@ Note: `ClipRing.csproj` and `ClipRing.Tests.csproj` target `net10.0-windows` (`U
 
 ## Release Checklist
 
-1. Bump `<Version>` in `src/ClipRing/ClipRing.csproj` (`StampManifestVersion` updates `app.manifest` automatically from `$(VersionPrefix).0`).
+1. Bump `<Version>` in `src/ClipRing/ClipRing.csproj` (`StampManifestVersion` updates `app.manifest` automatically from `$(AssemblyVersion)`).
 2. Add `.github/release-notes/vX.Y.Z.md` (English only; the CI release job appends the FFmpeg source section).
 3. Verify CI passes on `main` (build, 0 warnings, unit tests, `--selftest-ui`, `--selftest-ffmpeg`).
 4. Push tag `vX.Y.Z` to trigger the self-contained build, release self-tests, ZIP packaging, and GitHub Release creation.

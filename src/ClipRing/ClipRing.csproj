@@ -51,12 +51,12 @@
 
   <!-- The manifest's assembly version follows <Version>, so it never goes stale: a copy in obj gets stamped. -->
   <Target Name="StampManifestVersion" BeforeTargets="SetWin32ManifestProperties;_SetEmbeddedWin32ManifestProperties"
-          DependsOnTargets="PrepareForBuild">
+          DependsOnTargets="PrepareForBuild;GetAssemblyVersion">
     <PropertyGroup>
       <StampedManifest>$(IntermediateOutputPath)app.manifest</StampedManifest>
     </PropertyGroup>
     <Copy SourceFiles="app.manifest" DestinationFiles="$(StampedManifest)" SkipUnchangedFiles="false" />
-    <XmlPoke XmlInputPath="$(StampedManifest)" Query="/asm:assembly/asm:assemblyIdentity/@version" Value="$(VersionPrefix).0"
+    <XmlPoke XmlInputPath="$(StampedManifest)" Query="/asm:assembly/asm:assemblyIdentity/@version" Value="$(AssemblyVersion)"
              Namespaces="&lt;Namespace Prefix='asm' Uri='urn:schemas-microsoft-com:asm.v1' /&gt;" />
     <PropertyGroup>
       <ApplicationManifest>$(StampedManifest)</ApplicationManifest>
