@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Baut ClipRing als einzelne ClipRing.exe, FFmpeg ist darin eingebaut.
 
@@ -123,14 +123,14 @@ else {
         try {
             $zip = Join-Path $temp $asset.name
             Write-Host "Lade $($asset.name) ($([math]::Round($asset.size / 1MB)) MB) …"
-            Retry 'FFmpeg-Download' { Invoke-WebRequest $asset.browser_download_url -OutFile $zip }
+            Retry 'FFmpeg-Download' { Invoke-WebRequest $asset.browser_download_url -Headers $headers -UseBasicParsing -OutFile $zip }
 
             # BtbN publishes SHA-256 sums for every file of a release: a broken or tampered download stops here.
             $sums = $release.assets | Where-Object { $_.name -eq 'checksums.sha256' } | Select-Object -First 1
             if ($sums) {
                 # Converted to text inside the block: a byte[] returned from it would be unrolled into single bytes.
                 $sumText = Retry 'Prüfsummen laden' {
-                    $content = (Invoke-WebRequest $sums.browser_download_url -UseBasicParsing).Content
+                    $content = (Invoke-WebRequest $sums.browser_download_url -Headers $headers -UseBasicParsing).Content
                     if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }
                 }
                 $line = ($sumText -split "`r?`n") | Where-Object { $_ -match "^\s*([0-9a-fA-F]{64})\s+\*?$([regex]::Escape($asset.name))\s*$" } |

@@ -56,7 +56,7 @@
       <StampedManifest>$(IntermediateOutputPath)app.manifest</StampedManifest>
     </PropertyGroup>
     <Copy SourceFiles="app.manifest" DestinationFiles="$(StampedManifest)" SkipUnchangedFiles="false" />
-    <XmlPoke XmlInputPath="$(StampedManifest)" Query="/asm:assembly/asm:assemblyIdentity/@version" Value="$(Version).0"
+    <XmlPoke XmlInputPath="$(StampedManifest)" Query="/asm:assembly/asm:assemblyIdentity/@version" Value="$(VersionPrefix).0"
              Namespaces="&lt;Namespace Prefix='asm' Uri='urn:schemas-microsoft-com:asm.v1' /&gt;" />
     <PropertyGroup>
       <ApplicationManifest>$(StampedManifest)</ApplicationManifest>
