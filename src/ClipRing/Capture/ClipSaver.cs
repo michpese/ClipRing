@@ -23,8 +23,8 @@ public sealed record SavedClip(string FilePath, string Game, double DurationSeco
         ? "–"
         : TimeSpan.FromSeconds(Math.Round(DurationSeconds)).ToString(DurationSeconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss");
     public string SizeText => SizeBytes >= 1024L * 1024 * 1024
-        ? $"{SizeBytes / (1024.0 * 1024 * 1024):0.0} GB"
-        : $"{SizeBytes / (1024.0 * 1024):0} MB";
+        ? string.Format(Localization.Loc.Instance.Culture, "{0:0.0} GB", SizeBytes / (1024.0 * 1024 * 1024))
+        : string.Format(Localization.Loc.Instance.Culture, "{0:0} MB", SizeBytes / (1024.0 * 1024));
     public string TimeText => SavedAt.Date == DateTime.Today
         ? SavedAt.ToString("HH:mm", CultureInfo.InvariantCulture)
         : SavedAt.ToString(Localization.Loc.T("Format_ClipDate"), CultureInfo.InvariantCulture);
@@ -204,33 +204,42 @@ public sealed class ClipSaver
             ChildProcessJob.Add(process);
             try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
 
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
             try
             {
-                var stdin = process.StandardInput.BaseStream;
-                await snapshot.WriteToAsync(stdin, ct).ConfigureAwait(false);
-                await stdin.FlushAsync(ct).ConfigureAwait(false);
-                stdin.Close();
+                var stderrTask = process.StandardError.ReadToEndAsync(ct);
+                var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+                try
+                {
+                    var stdin = process.StandardInput.BaseStream;
+                    await snapshot.WriteToAsync(stdin, ct).ConfigureAwait(false);
+                    await stdin.FlushAsync(ct).ConfigureAwait(false);
+                    stdin.Close();
+                }
+                catch (IOException)
+                {
+                    // ffmpeg closed the pipe early: the error text tells why
+                }
+
+                await process.WaitForExitAsync(ct).ConfigureAwait(false);
+                string stderr = await stderrTask.ConfigureAwait(false);
+                await stdoutTask.ConfigureAwait(false);
+
+                if (process.ExitCode == 0 && File.Exists(output) && new FileInfo(output).Length > 0) return true;
+                Log.Warn($"Remux fehlgeschlagen (Code {process.ExitCode}): {ProcessRunner.Tail(stderr)}");
             }
-            catch (IOException)
+            catch (OperationCanceledException)
             {
-                // ffmpeg closed the pipe early: the error text tells why
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                TryDelete(output);
+                throw;
             }
-
-            await process.WaitForExitAsync(ct).ConfigureAwait(false);
-            string stderr = await stderrTask.ConfigureAwait(false);
-            await stdoutTask.ConfigureAwait(false);
-
-            if (process.ExitCode == 0 && File.Exists(output) && new FileInfo(output).Length > 0) return true;
-            Log.Warn($"Remux fehlgeschlagen (Code {process.ExitCode}): {ProcessRunner.Tail(stderr)}");
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             Log.Warn("Remux fehlgeschlagen: " + ex.Message);
         }
-        try { if (File.Exists(output)) File.Delete(output); } catch { }
+        TryDelete(output);
         return false;
     }
 
@@ -245,10 +254,13 @@ public sealed class ClipSaver
         name = name.Replace("{tag}", tag ?? "", StringComparison.OrdinalIgnoreCase);
         if (!templateHasTag && !string.IsNullOrEmpty(tag)) name += "_" + tag;
 
-        name = SanitizeName(name, "Clip");
+        name = ReplaceInvalidChars(name);
         while (name.Contains("__")) name = name.Replace("__", "_");
-        return name.Trim('_', ' ', '-');
+        name = name.Trim('_', ' ', '-');
+        return SanitizeName(name, "Clip");
     }
+
+    private static readonly char[] InvalidFileNameChars = Path.GetInvalidFileNameChars();
 
     private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -257,13 +269,17 @@ public sealed class ClipSaver
         "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
     };
 
+    private static string ReplaceInvalidChars(string value)
+    {
+        var sb = new StringBuilder(value.Length);
+        foreach (var ch in value) sb.Append(Array.IndexOf(InvalidFileNameChars, ch) >= 0 ? '_' : ch);
+        return sb.ToString();
+    }
+
     public static string SanitizeName(string? value, string fallback)
     {
         if (string.IsNullOrWhiteSpace(value)) return fallback;
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(value.Length);
-        foreach (var ch in value) sb.Append(invalid.Contains(ch) ? '_' : ch);
-        var result = sb.ToString().Trim();
+        var result = ReplaceInvalidChars(value).Trim();
         if (result.Length > 80) result = result[..80];
         // Windows drops trailing dots and spaces, so a name ending in them can't be created as given.
         result = result.Trim().TrimEnd('.', ' ');

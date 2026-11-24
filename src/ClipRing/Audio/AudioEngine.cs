@@ -233,17 +233,26 @@ public sealed class AudioEngine : IDisposable
         try
         {
             bool needRebuild = false;
-            using (var enumerator = new MMDeviceEnumerator())
+            bool sysEnabled, micEnabled;
+            string sysId, micId;
+            lock (_sourceGate)
             {
-                lock (_sourceGate)
-                {
-                    if (_systemEnabled && (_system is null || _system.IsStopped)) needRebuild = true;
-                    if (_micEnabled && (_mic is null || _mic.IsStopped)) needRebuild = true;
-                }
-                if (_systemEnabled && string.IsNullOrEmpty(_systemId) &&
-                    AudioDevices.DefaultId(enumerator, DataFlow.Render) != _systemDefaultSeen) needRebuild = true;
-                if (_micEnabled && string.IsNullOrEmpty(_micId) &&
-                    AudioDevices.DefaultId(enumerator, DataFlow.Capture) != _micDefaultSeen) needRebuild = true;
+                sysEnabled = _systemEnabled;
+                sysId = _systemId;
+                micEnabled = _micEnabled;
+                micId = _micId;
+                if (sysEnabled && (_system is null || _system.IsStopped)) needRebuild = true;
+                if (micEnabled && (_mic is null || _mic.IsStopped)) needRebuild = true;
+            }
+            if (!needRebuild && ((sysEnabled && string.IsNullOrEmpty(sysId)) || (micEnabled && string.IsNullOrEmpty(micId))))
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                if (sysEnabled && string.IsNullOrEmpty(sysId) &&
+                    AudioDevices.DefaultId(enumerator, DataFlow.Render) != Volatile.Read(ref _systemDefaultSeen))
+                    needRebuild = true;
+                if (micEnabled && string.IsNullOrEmpty(micId) &&
+                    AudioDevices.DefaultId(enumerator, DataFlow.Capture) != Volatile.Read(ref _micDefaultSeen))
+                    needRebuild = true;
             }
             if (needRebuild) Rebuild(force: false);
         }
@@ -280,7 +289,7 @@ public sealed class AudioEngine : IDisposable
         lock (_outGate)
         {
             _writer?.Dispose();
-            _writer = new PipeWriter(output);
+            _writer = new PipeWriter(output, _separate ? SeparateChannels : Channels);
             _overflowReported = false;
             if (_backlog.Length > 0)
             {
@@ -360,8 +369,10 @@ public sealed class AudioEngine : IDisposable
                     if (_mic is not null) micPeak = _mic.MixInto(micOnly, scratch, frames, _micGain, keepingUp);
                 }
                 for (int i = 0; i < samples; i++) mix[i] = Clamp(systemOnly[i] + micOnly[i]);
-                _systemPeak = Math.Max(sysPeak, _systemPeak * 0.8f);
-                _micPeak = Math.Max(micPeak, _micPeak * 0.8f);
+                float decayedSys = Math.Max(sysPeak, _systemPeak * 0.8f);
+                float decayedMic = Math.Max(micPeak, _micPeak * 0.8f);
+                _systemPeak = decayedSys < 1e-5f ? 0f : decayedSys;
+                _micPeak = decayedMic < 1e-5f ? 0f : decayedMic;
 
                 ReadOnlySpan<byte> bytes;
                 if (separate)
@@ -400,6 +411,7 @@ public sealed class AudioEngine : IDisposable
 
     private void Write(ReadOnlySpan<byte> bytes, double chunkStart, bool separate)
     {
+        bool notifyOverflow = false;
         lock (_outGate)
         {
             // Mixed just before a new stream switched the channel layout: doesn't fit that stream.
@@ -412,7 +424,8 @@ public sealed class AudioEngine : IDisposable
                     _streamAnchored.Set();
                 }
                 _backlog.Write(bytes);
-                if (_backlog.Length > SampleRate * SeparateChannels * sizeof(float) * 10L)
+                long maxBacklogBytes = SampleRate * (separate ? SeparateChannels : Channels) * sizeof(float) * 10L;
+                if (_backlog.Length > maxBacklogBytes)
                 {
                     // Nobody attached within 10 s (ffmpeg failed to start): stop buffering.
                     _awaitingAttach = false;
@@ -428,9 +441,14 @@ public sealed class AudioEngine : IDisposable
             {
                 // ffmpeg has not read audio for two minutes: something is stuck, start over.
                 _overflowReported = true;
-                Log.Warn("FFmpeg nimmt seit 2 Minuten keinen Ton mehr an, Aufnahme wird neu gestartet");
-                SyncLost?.Invoke();
+                notifyOverflow = true;
             }
+        }
+
+        if (notifyOverflow)
+        {
+            Log.Warn("FFmpeg nimmt seit 2 Minuten keinen Ton mehr an, Aufnahme wird neu gestartet");
+            SyncLost?.Invoke();
         }
     }
 
@@ -442,13 +460,15 @@ public sealed class AudioEngine : IDisposable
     private sealed class PipeWriter : IDisposable
     {
         private readonly Stream _stream;
+        private readonly int _channels;
         private readonly BlockingCollection<(byte[] Chunk, int Length)> _queue = new();
         private long _queued, _written, _lastWriteTicks, _writeSinceTicks;
         private volatile string? _error;
 
-        public PipeWriter(Stream stream)
+        public PipeWriter(Stream stream, int channels)
         {
             _stream = stream;
+            _channels = channels;
             new Thread(Run) { IsBackground = true, Name = "audio-pipe", Priority = ThreadPriority.AboveNormal }.Start();
         }
 
@@ -504,13 +524,18 @@ public sealed class AudioEngine : IDisposable
             {
                 // The queue belongs to this thread; it ends only after CompleteAdding or a dead pipe.
                 try { _queue.CompleteAdding(); } catch (ObjectDisposedException) { }
+                while (_queue.TryTake(out var leftover))
+                {
+                    Interlocked.Add(ref _queued, -leftover.Length);
+                    ArrayPool<byte>.Shared.Return(leftover.Chunk);
+                }
                 _queue.Dispose();
             }
         }
 
         public string Describe()
         {
-            const double bytesPerSecond = SampleRate * Channels * sizeof(float);
+            double bytesPerSecond = SampleRate * _channels * sizeof(float);
             long written = Interlocked.Read(ref _written);
             long last = Interlocked.Read(ref _lastWriteTicks);
             long since = Interlocked.Read(ref _writeSinceTicks);

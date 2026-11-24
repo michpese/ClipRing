@@ -310,7 +310,15 @@ public sealed class MainViewModel : ObservableObject
 
     private void OpenOutputFolder()
     {
-        Directory.CreateDirectory(Settings.OutputFolder);
+        try
+        {
+            Directory.CreateDirectory(Settings.OutputFolder);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Clip-Ordner konnte nicht erstellt werden ({Settings.OutputFolder}): {ex.Message}");
+            return;
+        }
         Shell.Open(Settings.OutputFolder);
     }
 
@@ -376,11 +384,11 @@ public sealed class MainViewModel : ObservableObject
         switch (e.PropertyName)
         {
             case nameof(ReplayService.Capabilities):
-                App.Current.Dispatcher.InvokeAsync(RebuildCodecAndEncoderOptions);
+                App.Current?.Dispatcher.InvokeAsync(RebuildCodecAndEncoderOptions);
                 break;
             case nameof(ReplayService.Monitors):
             case nameof(ReplayService.SelectedMonitor):
-                App.Current.Dispatcher.InvokeAsync(() =>
+                App.Current?.Dispatcher.InvokeAsync(() =>
                 {
                     RebuildMonitorOptions();
                     ApplyMonitorLimits();

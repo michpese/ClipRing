@@ -129,8 +129,11 @@ public sealed class Cs2GameStateServer : IDisposable
                                                            (close ? "Connection: close\r\n" : "Connection: keep-alive\r\n") + "\r\n");
                     await stream.WriteAsync(response, ct).ConfigureAwait(false);
 
-                    try { Process(body); }
-                    catch (Exception ex) { Log.Warn("CS2-GSI-Daten nicht verarbeitet: " + ex.Message); }
+                    if (body.Length > 0)
+                    {
+                        try { Process(body); }
+                        catch (Exception ex) { Log.Warn("CS2-GSI-Daten nicht verarbeitet: " + ex.Message); }
+                    }
 
                     if (close) return;
                 }
@@ -215,8 +218,9 @@ public sealed class Cs2GameStateServer : IDisposable
 
     public void Dispose()
     {
-        _cts.Cancel();
+        try { _cts.Cancel(); } catch (ObjectDisposedException) { }
         try { _listener?.Stop(); } catch { }
+        _cts.Dispose();
     }
 }
 

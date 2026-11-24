@@ -140,7 +140,8 @@ public static class PipelineBuilder
     public static long EstimateBufferBytes(AppSettings s, int videoKbps)
     {
         double peakFactor = s.RateControl == RateControlMode.Vbr ? 1.1 : 1.0;
-        double audioKbps = s.CaptureSystemAudio || s.CaptureMicrophone ? s.AudioBitrateKbps : 0;
+        int audioTracks = SeparateAudioTracks(s) ? 3 : (s.CaptureSystemAudio || s.CaptureMicrophone ? 1 : 0);
+        double audioKbps = audioTracks * s.AudioBitrateKbps;
         return (long)((videoKbps * peakFactor + audioKbps) * 1000 / 8 * s.BufferSeconds);
     }
 
